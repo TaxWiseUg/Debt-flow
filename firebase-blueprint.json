@@ -1,0 +1,132 @@
+{
+  "entities": {
+    "Customer": {
+      "title": "Customer",
+      "description": "Customer record for billing and debt tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 50 },
+        "email": { "type": "string", "maxLength": 150 },
+        "address": { "type": "string", "maxLength": 300 },
+        "companyName": { "type": "string", "maxLength": 200 },
+        "taxId": { "type": "string", "maxLength": 50 },
+        "creditLimit": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "phone", "createdAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Product or service item with catalog unit price",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 200 },
+        "sku": { "type": "string", "maxLength": 50 },
+        "category": { "type": "string", "maxLength": 100 },
+        "unit": { "type": "string", "maxLength": 50 },
+        "unitPrice": { "type": "number" },
+        "description": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "unitPrice", "unit", "createdAt"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Invoice record with snapshot item line prices and balance due",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string", "maxLength": 50 },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string", "maxLength": 200 },
+        "customerPhone": { "type": "string", "maxLength": 50 },
+        "customerEmail": { "type": "string", "maxLength": 150 },
+        "customerAddress": { "type": "string", "maxLength": 300 },
+        "currency": { "type": "string", "maxLength": 10 },
+        "issueDate": { "type": "string", "maxLength": 20 },
+        "dueDate": { "type": "string", "maxLength": 20 },
+        "subtotal": { "type": "number" },
+        "taxPercent": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "discountAmount": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "balanceDue": { "type": "number" },
+        "status": { "type": "string", "enum": ["draft", "issued", "partially_paid", "paid", "overdue"] },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "paymentInstructions": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "invoiceNumber", "customerId", "customerName", "currency", "issueDate", "dueDate", "totalAmount", "balanceDue", "status", "createdAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Payment receipt record reducing customer debt",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "receiptNumber": { "type": "string", "maxLength": 50 },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string", "maxLength": 200 },
+        "invoiceId": { "type": "string" },
+        "invoiceNumber": { "type": "string", "maxLength": 50 },
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "maxLength": 10 },
+        "paymentDate": { "type": "string", "maxLength": 20 },
+        "paymentMethod": { "type": "string", "maxLength": 50 },
+        "referenceNumber": { "type": "string", "maxLength": 100 },
+        "mobileMoneyNetwork": { "type": "string", "maxLength": 50 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "receiptNumber", "customerId", "customerName", "amount", "currency", "paymentDate", "paymentMethod", "createdAt"]
+    },
+    "BusinessSettings": {
+      "title": "BusinessSettings",
+      "description": "Business profile and letterhead settings",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 200 },
+        "tagline": { "type": "string", "maxLength": 300 },
+        "phone": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "address": { "type": "string", "maxLength": 300 },
+        "taxNumber": { "type": "string", "maxLength": 50 },
+        "defaultCurrency": { "type": "string", "maxLength": 10 },
+        "bankName": { "type": "string", "maxLength": 100 },
+        "bankAccount": { "type": "string", "maxLength": 100 },
+        "bankSwift": { "type": "string", "maxLength": 50 },
+        "mobileMoneyMerchant": { "type": "string", "maxLength": 100 },
+        "mobileMoneyNumber": { "type": "string", "maxLength": 100 },
+        "notes": { "type": "string", "maxLength": 1000 }
+      },
+      "required": ["name", "defaultCurrency"]
+    }
+  },
+  "firestore": {
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Collection of customer records"
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Collection of catalog products with unit prices"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/Invoice" },
+      "description": "Collection of sales invoices"
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Collection of payment records and receipts"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/BusinessSettings" },
+      "description": "Business profile configuration"
+    }
+  }
+}

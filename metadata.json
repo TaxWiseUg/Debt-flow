@@ -1,0 +1,8 @@
+{
+  "name": "LedgerFlow - Invoicing & Debt Tracker",
+  "description": "Comprehensive customer ledger, multi-item invoicing, unit price catalog, installment debt tracking, and balance management system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
