@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { useLedger } from '../context/LedgerContext';
 import { Product } from '../types';
@@ -25,6 +25,10 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   onEditProduct,
 }) => {
   const { products, deleteProduct, activeCurrency } = useLedger();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, []);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -176,12 +180,10 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-200/60 dark:border-slate-800/60 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
-                  <th className="py-3 px-3.5 w-28">SKU Code</th>
                   <th className="py-3 px-3.5">Product / Service Name</th>
-                  <th className="py-3 px-3.5">Category</th>
-                  <th className="py-3 px-3.5 text-center">Unit</th>
-                  <th className="py-3 px-3.5 text-right">Standard Unit Price</th>
-                  <th className="py-3 px-3.5 text-right">Actions</th>
+                  <th className="py-3 px-3.5 text-center w-24">Unit</th>
+                  <th className="py-3 px-3.5 text-right w-40">Standard Unit Price</th>
+                  <th className="py-3 px-3.5 text-right w-24">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -190,11 +192,6 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     key={prod.id}
                     className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
                   >
-                    {/* SKU */}
-                    <td className="py-3 px-3.5 font-mono font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                      {prod.sku}
-                    </td>
-
                     {/* Name & Description */}
                     <td className="py-3 px-3.5">
                       <div className="font-semibold text-slate-900 dark:text-white">
@@ -205,11 +202,6 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                           {prod.description}
                         </div>
                       )}
-                    </td>
-
-                    {/* Category */}
-                    <td className="py-3 px-3.5 whitespace-nowrap text-slate-600 dark:text-slate-300">
-                      {prod.category}
                     </td>
 
                     {/* Unit */}

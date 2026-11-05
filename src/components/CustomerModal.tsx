@@ -88,8 +88,8 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-md liquid-glass rounded-2xl shadow-2xl overflow-hidden my-8 border border-white/30 dark:border-white/10">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/50 backdrop-blur-md overflow-y-auto animate-fade-in">
+      <div className="relative w-full max-w-md liquid-glass rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden my-0 sm:my-8 border border-white/30 dark:border-white/10 animate-slide-up sm:animate-modal-pop">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200/60 dark:border-slate-800/60">
           <div className="flex items-center gap-2.5">

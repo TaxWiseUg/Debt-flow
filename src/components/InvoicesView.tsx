@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { useLedger } from '../context/LedgerContext';
 import { Invoice, InvoiceStatus } from '../types';
@@ -38,6 +38,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   onViewCustomerStatement,
 }) => {
   const { invoices, customers, deleteInvoice, activeCurrency } = useLedger();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, []);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -330,9 +334,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                           <button
                             onClick={() => onViewInvoice(inv)}
                             className="p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                            title="View / Print Document"
+                            title="View & Download Invoice (PDF / PNG)"
                           >
-                            <Printer className="w-3.5 h-3.5" />
+                            <Download className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
                           </button>
 
                           {inv.balanceDue > 0 && (

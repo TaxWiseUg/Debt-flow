@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { useLedger } from '../context/LedgerContext';
 import { Customer } from '../types';
@@ -42,6 +42,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   onClearSelectedCustomerLedger,
 }) => {
   const { customers, deleteCustomer, getCustomerBalance, getCustomerLedger, activeCurrency } = useLedger();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [selectedCustomerIdForLedger]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'debt_desc' | 'billed_desc' | 'name_asc'>('debt_desc');

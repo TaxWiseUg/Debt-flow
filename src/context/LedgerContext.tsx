@@ -17,6 +17,7 @@ import {
   Invoice,
   Payment,
   Product,
+  ClientOrder,
 } from '../types';
 import {
   INITIAL_BUSINESS_PROFILE,
@@ -24,10 +25,12 @@ import {
   INITIAL_INVOICES,
   INITIAL_PAYMENTS,
   INITIAL_PRODUCTS,
+  INITIAL_ORDERS,
 } from '../data/seedData';
 import {
   calculateDaysOverdue,
   generateReceiptNumber,
+  generateOrderNumber,
 } from '../utils/formatters';
 
 interface LedgerContextType {
@@ -35,10 +38,12 @@ interface LedgerContextType {
   products: Product[];
   invoices: Invoice[];
   payments: Payment[];
+  orders: ClientOrder[];
   businessProfile: BusinessProfile;
   activeCurrency: CurrencyCode;
   theme: 'light' | 'dark';
   cloudStatus: 'connected' | 'syncing' | 'offline';
+
   
   // Theme & Currency
   toggleTheme: () => void;
@@ -66,6 +71,12 @@ interface LedgerContextType {
   addPayment: (data: Omit<Payment, 'id' | 'createdAt' | 'receiptNumber'>) => Promise<Payment>;
   deletePayment: (id: string) => Promise<void>;
   
+  // Order Actions
+  addOrder: (data: Omit<ClientOrder, 'id' | 'createdAt'>) => Promise<ClientOrder>;
+  updateOrder: (id: string, updates: Partial<ClientOrder>) => Promise<void>;
+  deleteOrder: (id: string) => Promise<void>;
+  convertOrderToInvoice: (orderId: string, customDueDate?: string) => Promise<Invoice | null>;
+  
   // Metrics & Summaries
   debtAging: DebtAgingSummary;
   metrics: {
@@ -89,7 +100,8 @@ const STORAGE_KEYS = {
   PRODUCTS: 'ledgerflow_clean_products_v2',
   INVOICES: 'ledgerflow_clean_invoices_v2',
   PAYMENTS: 'ledgerflow_clean_payments_v2',
-  PROFILE: 'ledgerflow_clean_profile_v2',
+  ORDERS: 'nextone_clean_orders_v2',
+  PROFILE: 'nextone_clean_profile_v2',
   CURRENCY: 'ledgerflow_currency_v2',
   THEME: 'ledgerflow_theme_v2',
 };
@@ -120,9 +132,27 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Business Profile
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PROFILE);
+    const saved = localStorage.getItem(STORAGE_KEYS.PROFILE) || localStorage.getItem('ledgerflow_clean_profile_v2');
     if (saved) {
-      try { return JSON.parse(saved); } catch { /* ignore */ }
+      try {
+        const parsed = JSON.parse(saved);
+        if (
+          !parsed.name ||
+          parsed.name.toUpperCase().includes('LEDGER') ||
+          parsed.name === 'PrimePrint Solutions Ltd' ||
+          parsed.name.toLowerCase() === 'next one' ||
+          parsed.name.toLowerCase() === 'nextone'
+        ) {
+          parsed.name = 'NexTone';
+          parsed.tagline = 'Printing, Branding & Custom Media Solutions';
+          parsed.email = 'orders@nextone.ug';
+          localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(parsed));
+        } else if (parsed.name === 'nextone' || parsed.name === 'NEXTONE') {
+          parsed.name = 'NexTone';
+          localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(parsed));
+        }
+        return parsed;
+      } catch { /* ignore */ }
     }
     return INITIAL_BUSINESS_PROFILE;
   });
@@ -164,6 +194,14 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return INITIAL_PAYMENTS;
   });
 
+  const [orders, setOrders] = useState<ClientOrder[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.ORDERS);
+    if (saved) {
+      try { return JSON.parse(saved); } catch { /* ignore */ }
+    }
+    return INITIAL_ORDERS || [];
+  });
+
   // Local storage caching
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers));
@@ -180,6 +218,10 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.PAYMENTS, JSON.stringify(payments));
   }, [payments]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
+  }, [orders]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(businessProfile));
@@ -220,8 +262,38 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         snapshot.forEach((docSnap) => {
           cloudProducts.push(docSnap.data() as Product);
         });
-        cloudProducts.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        setProducts(cloudProducts);
+        const BRIEF_NAMES_MAP: Record<string, string> = {
+          'Roll-up Banner (85x200cm)': 'Roll-up Banner',
+          'Branded Cotton T-Shirt (DTF Print)': 'Branded T-Shirt',
+          'Shirt (DTF Print)': 'Branded T-Shirt',
+          'Business Cards (350gsm Matte/Gloss)': 'Business Cards',
+          'Custom Die-Cut Vinyl Stickers': 'Vinyl Stickers',
+          'Teardrop Feather Flag (3m)': 'Teardrop Flag',
+          'Branded Ceramic Coffee Mug': 'Branded Mug',
+          'A5/A4 Flyers / Brochures (100pcs)': 'Flyers & Brochures',
+          'Custom Woven Lanyards with ID Holder': 'Branded Lanyards',
+        };
+
+        if (cloudProducts.length === 0 && INITIAL_PRODUCTS.length > 0) {
+          setProducts(INITIAL_PRODUCTS);
+          // Seed to Firestore in background
+          INITIAL_PRODUCTS.forEach(p => {
+            setDoc(doc(db, 'products', p.id), sanitizeForFirestore(p)).catch(() => {});
+          });
+        } else {
+          // Normalize any existing products with overly long names to concise brief names
+          const normalized = cloudProducts.map(p => {
+            if (BRIEF_NAMES_MAP[p.name]) {
+              const updatedProduct = { ...p, name: BRIEF_NAMES_MAP[p.name] };
+              // Sync updated name to Firestore
+              setDoc(doc(db, 'products', p.id), sanitizeForFirestore(updatedProduct)).catch(() => {});
+              return updatedProduct;
+            }
+            return p;
+          });
+          normalized.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          setProducts(normalized);
+        }
         setCloudStatus('connected');
       },
       (error) => {
@@ -272,6 +344,23 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       (docSnap) => {
         if (docSnap.exists()) {
           const cloudProfile = docSnap.data() as BusinessProfile;
+          if (
+            !cloudProfile.name ||
+            cloudProfile.name.toUpperCase().includes('LEDGER') ||
+            cloudProfile.name === 'PrimePrint Solutions Ltd' ||
+            cloudProfile.name.toLowerCase() === 'next one' ||
+            cloudProfile.name.toLowerCase() === 'nextone'
+          ) {
+            cloudProfile.name = 'NexTone';
+            cloudProfile.tagline = 'Printing, Branding & Custom Media Solutions';
+            cloudProfile.email = 'orders@nextone.ug';
+            setDoc(doc(db, 'settings', 'profile'), sanitizeForFirestore(cloudProfile)).catch(() => {});
+            localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(cloudProfile));
+          } else if (cloudProfile.name === 'nextone' || cloudProfile.name === 'NEXTONE') {
+            cloudProfile.name = 'NexTone';
+            setDoc(doc(db, 'settings', 'profile'), sanitizeForFirestore(cloudProfile)).catch(() => {});
+            localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(cloudProfile));
+          }
           setBusinessProfile(cloudProfile);
           if (cloudProfile.defaultCurrency) {
             // Currency is fixed to UGX
@@ -284,12 +373,39 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     );
 
+    // 6. Orders subscription (synced in Firestore under settings/orders_store)
+    const unsubOrders = onSnapshot(
+      doc(db, 'settings', 'orders_store'),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          const cloudOrders: ClientOrder[] = (data.list as ClientOrder[]) || [];
+          cloudOrders.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime());
+          setOrders(cloudOrders);
+        } else {
+          // Initialize remote store if not yet created
+          const seed = INITIAL_ORDERS && INITIAL_ORDERS.length > 0 ? INITIAL_ORDERS : [];
+          setOrders(seed);
+          setDoc(doc(db, 'settings', 'orders_store'), {
+            list: sanitizeForFirestore(seed),
+            updatedAt: new Date().toISOString(),
+          }).catch(() => {});
+        }
+        setCloudStatus('connected');
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, 'settings/orders_store');
+        setCloudStatus('offline');
+      }
+    );
+
     return () => {
       unsubCustomers();
       unsubProducts();
       unsubInvoices();
       unsubPayments();
       unsubSettings();
+      unsubOrders();
     };
   }, []);
 
@@ -674,12 +790,127 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Update business profile
   const updateBusinessProfile = async (updates: Partial<BusinessProfile>) => {
     const merged = { ...businessProfile, ...updates };
+    if (
+      !merged.name ||
+      merged.name.toUpperCase().includes('LEDGER') ||
+      merged.name === 'PrimePrint Solutions Ltd' ||
+      merged.name.toLowerCase() === 'next one' ||
+      merged.name.toLowerCase() === 'nextone'
+    ) {
+      merged.name = 'NexTone';
+    }
     setBusinessProfile(merged);
+    localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(merged));
     try {
       await setDoc(doc(db, 'settings', 'profile'), sanitizeForFirestore(merged));
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'settings/profile');
     }
+  };
+
+  // Order Actions (stored in Firestore at settings/orders_store)
+  const addOrder = async (data: Omit<ClientOrder, 'id' | 'createdAt'>): Promise<ClientOrder> => {
+    const id = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newOrder: ClientOrder = {
+      ...data,
+      id,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated = [newOrder, ...orders];
+    setOrders(updated);
+
+    try {
+      await setDoc(doc(db, 'settings', 'orders_store'), {
+        list: sanitizeForFirestore(updated),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'settings/orders_store');
+    }
+
+    return newOrder;
+  };
+
+  const updateOrder = async (id: string, updates: Partial<ClientOrder>) => {
+    const existing = orders.find(o => o.id === id);
+    if (!existing) return;
+    const merged = { ...existing, ...updates, updatedAt: new Date().toISOString() };
+
+    const updated = orders.map(o => (o.id === id ? merged : o));
+    setOrders(updated);
+
+    try {
+      await setDoc(doc(db, 'settings', 'orders_store'), {
+        list: sanitizeForFirestore(updated),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'settings/orders_store');
+    }
+  };
+
+  const deleteOrder = async (id: string) => {
+    const updated = orders.filter(o => o.id !== id);
+    setOrders(updated);
+    try {
+      await setDoc(doc(db, 'settings', 'orders_store'), {
+        list: sanitizeForFirestore(updated),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'settings/orders_store');
+    }
+  };
+
+  const convertOrderToInvoice = async (orderId: string, customDueDate?: string): Promise<Invoice | null> => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return null;
+
+    const dueDate = customDueDate || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
+    const invoiceNumber = `INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(4, '0')}`;
+
+    const invoiceData: Omit<Invoice, 'id' | 'createdAt' | 'paidAmount' | 'balanceDue' | 'status'> = {
+      invoiceNumber,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      customerId: order.customerId,
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      customerEmail: order.customerEmail,
+      customerAddress: order.customerAddress,
+      currency: order.currency,
+      issueDate: new Date().toISOString().split('T')[0],
+      dueDate,
+      items: order.items.map(it => ({
+        id: `item_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        productId: it.productId,
+        productName: it.productName,
+        quantity: it.quantity,
+        unit: it.unit,
+        unitPrice: it.unitPrice,
+        discountPercent: 0,
+        total: it.total,
+      })),
+      subtotal: order.subtotal,
+      taxPercent: order.taxPercent,
+      taxAmount: order.taxAmount,
+      discountAmount: order.discountAmount,
+      totalAmount: order.totalAmount,
+      notes: order.notes ? `Generated from Order #${order.orderNumber}. ${order.notes}` : `Generated from Order #${order.orderNumber}`,
+      paymentInstructions: businessProfile.notes,
+    };
+
+    const newInvoice = await addInvoice(invoiceData);
+
+    // Update order with linked invoice and mark as invoiced
+    await updateOrder(orderId, {
+      status: 'invoiced',
+      linkedInvoiceId: newInvoice.id,
+      linkedInvoiceNumber: newInvoice.invoiceNumber,
+    });
+
+    return newInvoice;
   };
 
   // Clear all data (starts fresh and clean)
@@ -688,16 +919,19 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setProducts([]);
     setInvoices([]);
     setPayments([]);
+    setOrders([]);
     localStorage.removeItem(STORAGE_KEYS.CUSTOMERS);
     localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
     localStorage.removeItem(STORAGE_KEYS.INVOICES);
     localStorage.removeItem(STORAGE_KEYS.PAYMENTS);
+    localStorage.removeItem(STORAGE_KEYS.ORDERS);
 
     // Delete docs from Firestore in background
     customers.forEach(c => deleteDoc(doc(db, 'customers', c.id)).catch(() => {}));
     products.forEach(p => deleteDoc(doc(db, 'products', p.id)).catch(() => {}));
     invoices.forEach(i => deleteDoc(doc(db, 'invoices', i.id)).catch(() => {}));
     payments.forEach(p => deleteDoc(doc(db, 'payments', p.id)).catch(() => {}));
+    setDoc(doc(db, 'settings', 'orders_store'), { list: [], updatedAt: new Date().toISOString() }).catch(() => {});
   };
 
   const exportDataJson = () => {
@@ -707,6 +941,7 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       activeCurrency,
       customers,
       products,
+      orders,
       invoices: refreshedInvoices,
       payments,
     };
@@ -727,6 +962,13 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         for (const p of parsed.products) {
           await setDoc(doc(db, 'products', p.id), sanitizeForFirestore(p));
         }
+      }
+      if (parsed.orders && Array.isArray(parsed.orders)) {
+        setOrders(parsed.orders);
+        await setDoc(doc(db, 'settings', 'orders_store'), {
+          list: sanitizeForFirestore(parsed.orders),
+          updatedAt: new Date().toISOString(),
+        });
       }
       if (parsed.invoices && Array.isArray(parsed.invoices)) {
         setInvoices(parsed.invoices);
@@ -757,6 +999,7 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         products,
         invoices: refreshedInvoices,
         payments,
+        orders,
         businessProfile,
         activeCurrency,
         theme,
@@ -772,6 +1015,10 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         addProduct,
         updateProduct,
         deleteProduct,
+        addOrder,
+        updateOrder,
+        deleteOrder,
+        convertOrderToInvoice,
         addInvoice,
         updateInvoice,
         deleteInvoice,

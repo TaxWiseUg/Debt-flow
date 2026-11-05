@@ -3,17 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { LedgerProvider, useLedger } from './context/LedgerContext';
-import { Customer, Invoice, Payment, Product } from './types';
+import { Customer, Invoice, Payment, Product, ClientOrder } from './types';
 import { Header } from './components/Header';
 import { FloatingNav, ActiveTab } from './components/FloatingNav';
 import { DashboardView } from './components/DashboardView';
+import { OrdersView } from './components/OrdersView';
 import { InvoicesView } from './components/InvoicesView';
 import { CustomersView } from './components/CustomersView';
 import { ProductsView } from './components/ProductsView';
 import { PaymentsView } from './components/PaymentsView';
+import { OrderModal } from './components/OrderModal';
 import { InvoiceModal } from './components/InvoiceModal';
 import { PaymentModal } from './components/PaymentModal';
 import { CustomerModal } from './components/CustomerModal';
@@ -22,10 +24,38 @@ import { PrintDocumentModal, DocumentType } from './components/PrintDocumentModa
 import { SettingsModal } from './components/SettingsModal';
 
 function AppContent() {
-  const { customers } = useLedger();
+  const { customers, products, orders, addOrder, updateOrder } = useLedger();
 
   // Navigation state (Default is dashboard)
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+
+  // Disable browser's automatic scrollRestoration to avoid bleeding scroll offset between tabs
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual';
+    }
+  }, []);
+
+  // Prevent other pages from pre-scrolling when navigating tabs
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    const rafId = requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    });
+    const timer = setTimeout(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    }, 100);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(timer);
+    };
+  }, [activeTab]);
+
+  // Order modal states
+  const [orderModalOpen, setOrderModalOpen] = useState(false);
+  const [orderToEdit, setOrderToEdit] = useState<ClientOrder | null>(null);
+  const [initialOrderForInvoice, setInitialOrderForInvoice] = useState<ClientOrder | null>(null);
 
   // Modal states
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
@@ -50,19 +80,49 @@ function AppContent() {
   const [printInvoice, setPrintInvoice] = useState<Invoice | null>(null);
   const [printPayment, setPrintPayment] = useState<Payment | null>(null);
   const [printCustomer, setPrintCustomer] = useState<Customer | null>(null);
+  const [printOrder, setPrintOrder] = useState<ClientOrder | null>(null);
 
   // Deep linking to customer ledger
   const [selectedCustomerIdForLedger, setSelectedCustomerIdForLedger] = useState<string | null>(null);
 
+  // Order actions
+  const handleOpenNewOrder = () => {
+    setOrderToEdit(null);
+    setOrderModalOpen(true);
+  };
+
+  const handleEditOrder = (order: ClientOrder) => {
+    setOrderToEdit(order);
+    setOrderModalOpen(true);
+  };
+
+  const handlePrintOrderDoc = (order: ClientOrder) => {
+    setPrintDocType('order');
+    setPrintOrder(order);
+    const cust = customers.find(c => c.id === order.customerId) || null;
+    setPrintCustomer(cust);
+    setPrintInvoice(null);
+    setPrintPayment(null);
+    setPrintModalOpen(true);
+  };
+
+  const handleConvertOrderToInvoice = (order: ClientOrder) => {
+    setInitialOrderForInvoice(order);
+    setInvoiceToEdit(null);
+    setInvoiceModalOpen(true);
+  };
+
   // Helper actions
   const handleOpenNewInvoice = (customerId?: string) => {
     setInvoiceToEdit(null);
+    setInitialOrderForInvoice(null);
     setPreselectedCustomerIdForInvoice(customerId);
     setInvoiceModalOpen(true);
   };
 
   const handleEditInvoice = (invoice: Invoice) => {
     setInvoiceToEdit(invoice);
+    setInitialOrderForInvoice(null);
     setPreselectedCustomerIdForInvoice(invoice.customerId);
     setInvoiceModalOpen(true);
   };
@@ -96,6 +156,7 @@ function AppContent() {
   const handleViewInvoiceDoc = (invoice: Invoice) => {
     setPrintDocType('invoice');
     setPrintInvoice(invoice);
+    setPrintOrder(null);
     const cust = customers.find(c => c.id === invoice.customerId) || null;
     setPrintCustomer(cust);
     setPrintModalOpen(true);
@@ -104,6 +165,7 @@ function AppContent() {
   const handlePrintReceiptDoc = (payment: Payment) => {
     setPrintDocType('receipt');
     setPrintPayment(payment);
+    setPrintOrder(null);
     const cust = customers.find(c => c.id === payment.customerId) || null;
     setPrintCustomer(cust);
     setPrintModalOpen(true);
@@ -114,6 +176,7 @@ function AppContent() {
     setPrintCustomer(customer);
     setPrintInvoice(null);
     setPrintPayment(null);
+    setPrintOrder(null);
     setPrintModalOpen(true);
   };
 
@@ -125,6 +188,7 @@ function AppContent() {
   const getViewTitle = () => {
     switch (activeTab) {
       case 'dashboard': return 'Dashboard';
+      case 'orders': return 'Client Orders';
       case 'invoices': return 'Invoices';
       case 'customers': return 'Customers & Debt';
       case 'products': return 'Unit Price Catalog';
@@ -162,6 +226,16 @@ function AppContent() {
               onPayInvoice={(inv) => handleOpenNewPayment(inv.customerId, inv.id)}
               onViewCustomerStatement={handleViewCustomerStatement}
               onNavigateToTab={(tab) => setActiveTab(tab)}
+            />
+          )}
+
+          {activeTab === 'orders' && (
+            <OrdersView
+              key="orders"
+              onNewOrder={handleOpenNewOrder}
+              onEditOrder={handleEditOrder}
+              onPrintOrder={handlePrintOrderDoc}
+              onConvertOrderToInvoice={handleConvertOrderToInvoice}
             />
           )}
 
@@ -216,13 +290,44 @@ function AppContent() {
       />
 
       {/* Modals & Dialogs */}
+      <OrderModal
+        isOpen={orderModalOpen}
+        onClose={() => setOrderModalOpen(false)}
+        onSave={async (orderData) => {
+          if (orderToEdit) {
+            await updateOrder(orderToEdit.id, orderData);
+          } else {
+            await addOrder(orderData);
+          }
+        }}
+        customers={customers}
+        products={products}
+        orderToEdit={orderToEdit}
+        existingOrderCount={orders.length}
+        onOpenCustomerModal={handleOpenNewCustomer}
+      />
+
       <InvoiceModal
         isOpen={invoiceModalOpen}
-        onClose={() => setInvoiceModalOpen(false)}
+        onClose={() => {
+          setInvoiceModalOpen(false);
+          setInitialOrderForInvoice(null);
+        }}
         invoiceToEdit={invoiceToEdit}
+        initialOrder={initialOrderForInvoice}
         onOpenNewCustomer={() => {
           setInvoiceModalOpen(false);
           handleOpenNewCustomer();
+        }}
+        onInvoiceSaved={async (createdInv) => {
+          if (initialOrderForInvoice) {
+            await updateOrder(initialOrderForInvoice.id, {
+              status: 'invoiced',
+              linkedInvoiceId: createdInv.id,
+              linkedInvoiceNumber: createdInv.invoiceNumber,
+            });
+            setInitialOrderForInvoice(null);
+          }
         }}
         preselectedCustomerId={preselectedCustomerIdForInvoice}
       />
@@ -258,6 +363,7 @@ function AppContent() {
         invoice={printInvoice}
         payment={printPayment}
         customer={printCustomer}
+        order={printOrder}
       />
     </div>
   );

@@ -34,12 +34,12 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Brand & Title */}
       <div className="flex items-center gap-3">
         <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
-          LF
+          NT
         </div>
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
             <span className="text-sm font-bold tracking-tight text-slate-900 dark:text-white leading-tight">
-              {businessProfile.name || 'LedgerFlow'}
+              {businessProfile.name || 'NexTone'}
             </span>
 
             {/* Cloud Storage Status */}

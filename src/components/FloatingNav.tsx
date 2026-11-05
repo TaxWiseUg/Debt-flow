@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import {
   LayoutDashboard,
+  ClipboardList,
   FileText,
   Users,
   Package,
@@ -10,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useLedger } from '../context/LedgerContext';
 
-export type ActiveTab = 'dashboard' | 'invoices' | 'customers' | 'products' | 'payments' | 'settings';
+export type ActiveTab = 'dashboard' | 'orders' | 'invoices' | 'customers' | 'products' | 'payments' | 'settings';
 
 interface FloatingNavProps {
   activeTab: ActiveTab;
@@ -30,6 +31,12 @@ export const FloatingNav: React.FC<FloatingNavProps> = ({
       id: 'dashboard' as ActiveTab,
       label: 'Dashboard',
       icon: LayoutDashboard,
+      hasDot: false,
+    },
+    {
+      id: 'orders' as ActiveTab,
+      label: 'Client Orders',
+      icon: ClipboardList,
       hasDot: false,
     },
     {

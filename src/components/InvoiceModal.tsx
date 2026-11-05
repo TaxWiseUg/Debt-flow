@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Customer, Invoice, InvoiceItem } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Customer, Invoice, InvoiceItem, ClientOrder } from '../types';
 import { useLedger } from '../context/LedgerContext';
 import {
   X,
@@ -8,8 +8,10 @@ import {
   User,
   Plus,
   Trash2,
-  DollarSign,
   UserPlus,
+  Package,
+  Layers,
+  ChevronDown,
 } from 'lucide-react';
 import {
   formatCurrency,
@@ -17,11 +19,14 @@ import {
   getDueDateDefault,
   getTodayDateString,
 } from '../utils/formatters';
+import { MultiItemSelectorModal } from './MultiItemSelectorModal';
+import { BottomSheetPicker, PickerOption } from './BottomSheetPicker';
 
 interface InvoiceModalProps {
   isOpen: boolean;
   onClose: () => void;
   invoiceToEdit?: Invoice | null;
+  initialOrder?: ClientOrder | null;
   onOpenNewCustomer: () => void;
   onInvoiceSaved?: (invoice: Invoice) => void;
   preselectedCustomerId?: string;
@@ -31,6 +36,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   isOpen,
   onClose,
   invoiceToEdit,
+  initialOrder,
   onOpenNewCustomer,
   onInvoiceSaved,
   preselectedCustomerId,
@@ -42,21 +48,25 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
     activeCurrency,
     addInvoice,
     updateInvoice,
-    businessProfile,
   } = useLedger();
 
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
-  const [issueDate, setIssueDate] = useState(getTodayDateString());
-  const [dueDate, setDueDate] = useState(getDueDateDefault(14));
+  const [issueDate, setIssueDate] = useState('');
+  const [dueDate, setDueDate] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [items, setItems] = useState<InvoiceItem[]>([]);
-  const [taxPercent, setTaxPercent] = useState<number>(0);
-  const [discountAmount, setDiscountAmount] = useState<number>(0);
+  const [taxPercent, setTaxPercent] = useState<number | ''>('');
+  const [discountPercent, setDiscountPercent] = useState<number | ''>('');
   const [notes, setNotes] = useState('');
   const [paymentInstructions, setPaymentInstructions] = useState('');
   const [errors, setErrors] = useState<{ customer?: string; items?: string }>({});
+  const [showMultiSelector, setShowMultiSelector] = useState(false);
 
-  // Reset or load data when modal opens
+  // Bottom slide-up picker states
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false);
+  const [activeItemIndexForCatalog, setActiveItemIndexForCatalog] = useState<number | null>(null);
+
+  // Reset or load data when modal opens - strictly avoid pre-filling inputs
   useEffect(() => {
     if (!isOpen) return;
 
@@ -66,89 +76,155 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
       setDueDate(invoiceToEdit.dueDate);
       setInvoiceNumber(invoiceToEdit.invoiceNumber);
       setItems(invoiceToEdit.items.map(it => ({ ...it })));
-      setTaxPercent(invoiceToEdit.taxPercent || 0);
-      setDiscountAmount(invoiceToEdit.discountAmount || 0);
+      setTaxPercent(invoiceToEdit.taxPercent || '');
+      const pct = invoiceToEdit.discountPercent !== undefined
+        ? invoiceToEdit.discountPercent
+        : (invoiceToEdit.subtotal > 0 && invoiceToEdit.discountAmount > 0
+            ? Math.round((invoiceToEdit.discountAmount / invoiceToEdit.subtotal) * 100)
+            : '');
+      setDiscountPercent(pct);
       setNotes(invoiceToEdit.notes || '');
       setPaymentInstructions(invoiceToEdit.paymentInstructions || '');
-    } else {
-      setSelectedCustomerId(preselectedCustomerId || (customers[0]?.id || ''));
+    } else if (initialOrder) {
+      // Pre-fill from order to convert into invoice
+      setSelectedCustomerId(initialOrder.customerId);
       setIssueDate(getTodayDateString());
-      setDueDate(getDueDateDefault(14));
+      setDueDate(initialOrder.deliveryDate || getDueDateDefault(14));
       setInvoiceNumber(generateInvoiceNumber(invoices.length));
-      setTaxPercent(0);
-      setDiscountAmount(0);
-      setNotes('Payment due upon receipt or within net agreed terms.');
-      setPaymentInstructions(
-        businessProfile.mobileMoneyMerchant
-          ? `${businessProfile.mobileMoneyMerchant} or ${businessProfile.bankName} Acc: ${businessProfile.bankAccount}`
-          : 'Payment via Mobile Money or Bank Wire.'
+      setItems(
+        initialOrder.items.map(it => ({
+          id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          productId: it.productId,
+          productName: it.productName,
+          quantity: it.quantity,
+          unit: it.unit,
+          unitPrice: it.unitPrice,
+          discountPercent: 0,
+          total: it.total,
+        }))
       );
+      setTaxPercent(initialOrder.taxPercent || '');
+      const pct = initialOrder.discountPercent !== undefined
+        ? initialOrder.discountPercent
+        : (initialOrder.subtotal > 0 && initialOrder.discountAmount > 0
+            ? Math.round((initialOrder.discountAmount / initialOrder.subtotal) * 100)
+            : '');
+      setDiscountPercent(pct);
+      setNotes(
+        initialOrder.notes
+          ? `Generated from Order #${initialOrder.orderNumber}. ${initialOrder.notes}`
+          : `Generated from Order #${initialOrder.orderNumber}`
+      );
+      setPaymentInstructions('');
+    } else {
+      // Clean, un-prefilled initial state
+      setSelectedCustomerId(preselectedCustomerId || '');
+      setIssueDate('');
+      setDueDate('');
+      setInvoiceNumber(generateInvoiceNumber(invoices.length));
+      setTaxPercent('');
+      setDiscountPercent('');
+      setNotes('');
+      setPaymentInstructions('');
 
-      // Start with 1 blank or first product item
-      if (products.length > 0) {
-        const p = products[0];
-        setItems([
-          {
-            id: `item-${Date.now()}-1`,
-            productId: p.id,
-            productName: p.name,
-            quantity: 1,
-            unit: p.unit,
-            unitPrice: p.unitPrice,
-            total: p.unitPrice,
-          },
-        ]);
-      } else {
-        setItems([
-          {
-            id: `item-${Date.now()}-1`,
-            productId: '',
-            productName: '',
-            quantity: 1,
-            unit: 'pcs',
-            unitPrice: 0,
-            total: 0,
-          },
-        ]);
-      }
+      // Start with 1 empty line item - no pre-filled quantity
+      setItems([
+        {
+          id: `item-${Date.now()}-1`,
+          productId: '',
+          productName: '',
+          quantity: 0,
+          unit: 'pcs',
+          unitPrice: 0,
+          total: 0,
+        },
+      ]);
     }
     setErrors({});
-  }, [isOpen, invoiceToEdit, preselectedCustomerId]);
+  }, [isOpen, invoiceToEdit, initialOrder, preselectedCustomerId]);
+
+  const customerOptions: PickerOption[] = useMemo(() => {
+    return customers.map(c => ({
+      id: c.id,
+      label: c.name,
+      subtitle: [c.companyName, c.phone].filter(Boolean).join(' · '),
+    }));
+  }, [customers]);
+
+  const productOptions: PickerOption[] = useMemo(() => {
+    return products.map(p => ({
+      id: p.id,
+      label: p.name,
+      subtitle: `${formatCurrency(p.unitPrice, activeCurrency)} / ${p.unit}`,
+    }));
+  }, [products, activeCurrency]);
+
+  const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
+
+  const handleBatchAddItems = (
+    selectedItems: Array<{ productId: string; productName: string; unit: string; unitPrice: number; quantity: number; total: number }>
+  ) => {
+    const formatted: InvoiceItem[] = selectedItems.map(s => ({
+      id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      productId: s.productId,
+      productName: s.productName,
+      unit: s.unit,
+      unitPrice: s.unitPrice,
+      quantity: s.quantity,
+      discountPercent: 0,
+      total: s.total,
+    }));
+
+    setItems(prev => {
+      const nonEmpties = prev.filter(it => it.productName.trim() !== '' || it.unitPrice > 0);
+      return [...nonEmpties, ...formatted];
+    });
+  };
 
   if (!isOpen) return null;
 
-  // Selected customer details
-  const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
-
   // Line item handlers
   const handleAddItem = () => {
-    const defaultProduct = products[0];
     const newItem: InvoiceItem = {
       id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      productId: defaultProduct ? defaultProduct.id : '',
-      productName: defaultProduct ? defaultProduct.name : '',
-      quantity: 1,
-      unit: defaultProduct ? defaultProduct.unit : 'pcs',
-      unitPrice: defaultProduct ? defaultProduct.unitPrice : 0,
-      total: defaultProduct ? defaultProduct.unitPrice : 0,
+      productId: '',
+      productName: '',
+      quantity: 0,
+      unit: 'pcs',
+      unitPrice: 0,
+      total: 0,
     };
     setItems(prev => [...prev, newItem]);
   };
 
   const handleProductSelect = (index: number, productId: string) => {
+    if (!productId) {
+      setItems(prev => {
+        const updated = [...prev];
+        updated[index] = {
+          ...updated[index],
+          productId: '',
+        };
+        return updated;
+      });
+      return;
+    }
+
     const selectedProd = products.find(p => p.id === productId);
     if (!selectedProd) return;
 
     setItems(prev => {
       const updated = [...prev];
       const current = updated[index];
+      const effectiveQty = current.quantity > 0 ? current.quantity : 1;
       const unitPrice = selectedProd.unitPrice;
-      const total = current.quantity * unitPrice;
+      const total = effectiveQty * unitPrice;
       updated[index] = {
         ...current,
         productId: selectedProd.id,
         productName: selectedProd.name,
-        unit: selectedProd.unit,
+        unit: selectedProd.unit || 'pcs',
+        quantity: current.quantity,
         unitPrice,
         total,
       };
@@ -161,11 +237,12 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
       const updated = [...prev];
       const current = { ...updated[index], [field]: value };
       
-      const qty = field === 'quantity' ? Number(value) || 0 : current.quantity;
-      const price = field === 'unitPrice' ? Number(value) || 0 : current.unitPrice;
+      const qty = field === 'quantity' ? (value === '' ? 0 : Number(value)) : current.quantity;
+      const price = field === 'unitPrice' ? (value === '' ? 0 : Number(value)) : current.unitPrice;
       current.quantity = qty;
       current.unitPrice = price;
-      current.total = qty * price;
+      const effectiveQty = qty > 0 ? qty : 1;
+      current.total = effectiveQty * price;
 
       updated[index] = current;
       return updated;
@@ -174,16 +251,33 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
   const handleRemoveItem = (index: number) => {
     if (items.length <= 1) {
-      alert('An invoice must have at least one line item.');
+      // Clear the single line item instead of deleting
+      setItems([
+        {
+          id: `item-${Date.now()}-1`,
+          productId: '',
+          productName: '',
+          quantity: 0,
+          unit: 'pcs',
+          unitPrice: 0,
+          total: 0,
+        },
+      ]);
       return;
     }
     setItems(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Calculations
-  const subtotal = items.reduce((acc, it) => acc + (it.total || 0), 0);
-  const taxAmount = (subtotal * (Number(taxPercent) || 0)) / 100;
-  const grandTotal = Math.max(0, subtotal + taxAmount - (Number(discountAmount) || 0));
+  // Calculations with effective quantity fallback to 1
+  const subtotal = items.reduce((acc, it) => {
+    const qty = it.quantity > 0 ? it.quantity : 1;
+    return acc + (qty * (it.unitPrice || 0));
+  }, 0);
+  const taxPctNum = typeof taxPercent === 'number' ? taxPercent : 0;
+  const taxAmount = (subtotal * taxPctNum) / 100;
+  const discountPctNum = typeof discountPercent === 'number' ? discountPercent : 0;
+  const discountNum = Math.round((subtotal * discountPctNum) / 100);
+  const grandTotal = Math.max(0, subtotal + taxAmount - discountNum);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,9 +287,19 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
       newErrors.customer = 'Please select a customer';
     }
 
-    const validItems = items.filter(it => it.productName.trim() && it.quantity > 0 && it.unitPrice >= 0);
+    const validItems = items
+      .filter(it => it.productName.trim())
+      .map(it => {
+        const qty = it.quantity > 0 ? it.quantity : 1;
+        return {
+          ...it,
+          quantity: qty,
+          total: qty * (it.unitPrice || 0),
+        };
+      });
+
     if (validItems.length === 0) {
-      newErrors.items = 'Please specify at least one valid line item with quantity and unit price';
+      newErrors.items = 'Please specify at least one item with a name or description';
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -207,19 +311,22 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
     const payload = {
       invoiceNumber: invoiceNumber || generateInvoiceNumber(invoices.length),
+      ...(initialOrder ? { orderId: initialOrder.id, orderNumber: initialOrder.orderNumber } : {}),
+      ...(!initialOrder && invoiceToEdit?.orderId ? { orderId: invoiceToEdit.orderId, orderNumber: invoiceToEdit.orderNumber } : {}),
       customerId: selectedCustomerId,
       customerName: cust ? cust.name : 'Unknown Customer',
       ...(cust?.phone ? { customerPhone: cust.phone } : {}),
       ...(cust?.email ? { customerEmail: cust.email } : {}),
       ...(cust?.address ? { customerAddress: cust.address } : {}),
       currency: activeCurrency,
-      issueDate,
-      dueDate,
+      issueDate: issueDate || getTodayDateString(),
+      dueDate: dueDate || getDueDateDefault(14),
       items: validItems,
       subtotal,
-      taxPercent: Number(taxPercent) || 0,
+      taxPercent: taxPctNum,
       taxAmount,
-      discountAmount: Number(discountAmount) || 0,
+      discountPercent: discountPctNum,
+      discountAmount: discountNum,
       totalAmount: grandTotal,
       ...(notes.trim() ? { notes: notes.trim() } : {}),
       ...(paymentInstructions.trim() ? { paymentInstructions: paymentInstructions.trim() } : {}),
@@ -241,350 +348,404 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/50 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-4xl liquid-glass rounded-2xl shadow-2xl border border-white/30 dark:border-white/10 overflow-hidden my-6 max-h-[92vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200/60 dark:border-slate-800/60 shrink-0">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/60 backdrop-blur-md overflow-y-auto animate-fade-in">
+      <div className="relative w-full max-w-2xl liquid-glass rounded-t-3xl sm:rounded-3xl shadow-2xl border border-white/40 dark:border-white/10 overflow-hidden my-0 sm:my-2 max-h-[96vh] flex flex-col animate-slide-up sm:animate-modal-pop">
+        {/* Header - Compact */}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-slate-200/60 dark:border-slate-800/60 bg-white/50 dark:bg-slate-900/50 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl liquid-glass-subtle text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold">
+            <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
               <FileText className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white leading-tight">
+              <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight">
                 {invoiceToEdit ? `Edit Invoice: ${invoiceToEdit.invoiceNumber}` : 'Create New Invoice'}
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Snapshots catalog unit prices at time of billing
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Billing & debt ledger entry
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-white/60 dark:hover:bg-slate-800 transition-colors"
+            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-white/80 dark:hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Form Body - Scrollable */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto grow">
-          {/* Top row: Customer, Invoice #, Dates */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800">
+        {/* Form Body - Scrollable with zero horizontal scroll */}
+        <form onSubmit={handleSubmit} className="p-3 sm:p-5 space-y-4 overflow-y-auto overflow-x-hidden grow">
+          {/* Client & Date Details */}
+          <div className="space-y-3 p-3.5 rounded-xl liquid-glass-subtle border border-slate-200/70 dark:border-slate-800/70">
             {/* Customer Select */}
-            <div className="md:col-span-1">
+            <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Bill To Customer *
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Customer *
                 </label>
                 <button
                   type="button"
                   onClick={onOpenNewCustomer}
-                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-medium"
+                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-semibold"
                 >
-                  <UserPlus className="w-3 h-3" />
-                  <span>+ New</span>
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>+ New Client</span>
                 </button>
               </div>
-              <div className="relative">
-                <User className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-                <select
-                  value={selectedCustomerId}
-                  onChange={(e) => setSelectedCustomerId(e.target.value)}
-                  className={`w-full pl-9 pr-3 py-2 text-sm rounded-lg border ${
-                    errors.customer
-                      ? 'border-rose-500'
-                      : 'border-slate-300 dark:border-slate-700'
-                  } bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500`}
-                >
-                  <option value="">Select a customer...</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} {c.companyName ? `(${c.companyName})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowCustomerPicker(true)}
+                className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-xl border text-left ${
+                  errors.customer
+                    ? 'border-rose-500 ring-2 ring-rose-500/20'
+                    : 'border-slate-300/80 dark:border-slate-700'
+                } bg-white dark:bg-slate-900 text-slate-900 dark:text-white hover:border-indigo-500 transition-colors`}
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <User className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className={selectedCustomer ? 'font-medium truncate' : 'text-slate-400'}>
+                    {selectedCustomer
+                      ? `${selectedCustomer.name}${selectedCustomer.companyName ? ` (${selectedCustomer.companyName})` : ''}`
+                      : 'Select a customer...'}
+                  </span>
+                </div>
+                <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+              </button>
               {errors.customer && (
-                <p className="text-xs text-rose-500 mt-1">{errors.customer}</p>
+                <p className="text-xs text-rose-500 mt-1 font-medium">{errors.customer}</p>
               )}
               {selectedCustomer && (
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate">
-                  Phone: {selectedCustomer.phone} {selectedCustomer.address ? `· ${selectedCustomer.address}` : ''}
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 px-1 truncate">
+                  📞 {selectedCustomer.phone || 'No phone'} {selectedCustomer.address ? `• 📍 ${selectedCustomer.address}` : ''}
                 </p>
               )}
             </div>
 
-            {/* Invoice Reference Number */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Invoice Number
-              </label>
-              <input
-                type="text"
-                value={invoiceNumber}
-                onChange={(e) => setInvoiceNumber(e.target.value)}
-                className="w-full px-3 py-2 text-sm font-mono font-medium rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            {/* Dates: Issue & Due */}
-            <div className="grid grid-cols-2 gap-2">
+            {/* Invoice Ref & Dates (dates flexed on the same line) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Issue Date
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  Invoice Number
                 </label>
-                <div className="relative">
-                  <Calendar className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                  <input
-                    type="date"
-                    value={issueDate}
-                    onChange={(e) => setIssueDate(e.target.value)}
-                    className="w-full pl-8 pr-2 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
+                <input
+                  type="text"
+                  value={invoiceNumber}
+                  onChange={(e) => setInvoiceNumber(e.target.value)}
+                  placeholder="e.g. INV-2026-0001"
+                  className="w-full px-2.5 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-300/80 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Due Date
-                </label>
-                <div className="relative">
-                  <Calendar className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                  <input
-                    type="date"
-                    value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
-                    className="w-full pl-8 pr-2 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
+
+              <div className="grid grid-cols-2 gap-2 sm:col-span-2">
+                <div className="min-w-0">
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 truncate">
+                    Issue Date
+                  </label>
+                  <div className="relative">
+                    <Calendar className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                    <input
+                      type="date"
+                      value={issueDate}
+                      onChange={(e) => setIssueDate(e.target.value)}
+                      className="w-full pl-8 pr-2 py-1.5 text-xs rounded-lg border border-slate-300/80 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 min-w-0"
+                    />
+                  </div>
+                </div>
+
+                <div className="min-w-0">
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 truncate">
+                    Due Date
+                  </label>
+                  <div className="relative">
+                    <Calendar className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                    <input
+                      type="date"
+                      value={dueDate}
+                      onChange={(e) => setDueDate(e.target.value)}
+                      className="w-full pl-8 pr-2 py-1.5 text-xs rounded-lg border border-slate-300/80 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 min-w-0"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Line Items Table */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                Line Items & Unit Prices ({activeCurrency})
+          {/* Line Items Section - Mobile Trimmed Without Horizontal Scrolling */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                Invoice Items ({items.length})
               </h3>
-              <button
-                type="button"
-                onClick={handleAddItem}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Item Line</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowMultiSelector(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Batch Pick</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddItem}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Item</span>
+                </button>
+              </div>
             </div>
 
             {errors.items && (
-              <p className="text-xs text-rose-500 mb-2 font-medium">{errors.items}</p>
+              <p className="text-xs text-rose-500 font-medium bg-rose-50 dark:bg-rose-950/40 p-2 rounded-lg border border-rose-200 dark:border-rose-900">
+                {errors.items}
+              </p>
             )}
 
-            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-100/70 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-semibold">
-                      <th className="py-2.5 px-3 w-[36%]">Item / Catalog Preset</th>
-                      <th className="py-2.5 px-3 w-[14%]">Quantity</th>
-                      <th className="py-2.5 px-3 w-[12%]">Unit</th>
-                      <th className="py-2.5 px-3 w-[18%]">Unit Price ({activeCurrency})</th>
-                      <th className="py-2.5 px-3 w-[15%] text-right">Total</th>
-                      <th className="py-2.5 px-2 w-[5%] text-center"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {items.map((item, index) => (
-                      <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                        {/* Item selector / custom name */}
-                        <td className="p-2.5">
-                          <div className="space-y-1.5">
-                            <select
-                              value={item.productId || ''}
-                              onChange={(e) => handleProductSelect(index, e.target.value)}
-                              className="w-full p-1.5 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                            >
-                              <option value="">-- Choose from Catalog or Type Below --</option>
-                              {products.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.name} ({formatCurrency(p.unitPrice, activeCurrency)} / {p.unit})
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              type="text"
-                              value={item.productName}
-                              onChange={(e) => handleItemChange(index, 'productName', e.target.value)}
-                              placeholder="Item description or custom title..."
-                              className="w-full p-1.5 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                            />
-                          </div>
-                        </td>
+            {/* Trimmed Mobile-Friendly Cards */}
+            <div className="space-y-2.5">
+              {items.map((item, index) => (
+                <div
+                  key={item.id}
+                  className="p-3 rounded-xl bg-white/80 dark:bg-slate-900/90 border border-slate-200/90 dark:border-slate-800 space-y-2 shadow-xs transition-all"
+                >
+                  {/* Item Description with integrated Catalog button & delete */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-mono font-bold text-slate-400 shrink-0">
+                      #{index + 1}
+                    </span>
+                    <div className="flex-1 relative">
+                      <input
+                        type="text"
+                        value={item.productName}
+                        onChange={(e) => handleItemChange(index, 'productName', e.target.value)}
+                        placeholder="Item name / specifications..."
+                        className="w-full pl-2.5 pr-20 py-1.5 text-xs rounded-lg border border-slate-300/80 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        required
+                      />
+                      {products.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveItemIndexForCatalog(index)}
+                          className="absolute right-1.5 top-1 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 text-[10px] font-semibold flex items-center gap-1 border border-indigo-200/50 dark:border-indigo-800/50"
+                        >
+                          <Package className="w-3 h-3" />
+                          <span>Catalog</span>
+                        </button>
+                      )}
+                    </div>
+                    {items.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveItem(index)}
+                        className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors shrink-0"
+                        title="Remove Item"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
 
-                        {/* Quantity */}
-                        <td className="p-2.5">
-                          <input
-                            type="number"
-                            min="0.01"
-                            step="any"
-                            value={item.quantity}
-                            onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
-                            className="w-full p-1.5 text-xs font-mono rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                          />
-                        </td>
+                  {/* Numbers Row: Qty, Unit, Unit Price, Total - Fits 100% on Mobile */}
+                  <div className="grid grid-cols-12 gap-2 items-center pt-1">
+                    {/* Qty */}
+                    <div className="col-span-3">
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Qty
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="any"
+                        value={!item.quantity ? '' : item.quantity}
+                        onChange={(e) => handleItemChange(index, 'quantity', e.target.value === '' ? 0 : Number(e.target.value))}
+                        placeholder="1"
+                        className="w-full px-2 py-1 text-xs font-mono font-bold rounded-lg border border-slate-300/80 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
 
-                        {/* Unit */}
-                        <td className="p-2.5">
-                          <input
-                            type="text"
-                            value={item.unit}
-                            onChange={(e) => handleItemChange(index, 'unit', e.target.value)}
-                            placeholder="pcs"
-                            className="w-full p-1.5 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                          />
-                        </td>
+                    {/* Unit */}
+                    <div className="col-span-3">
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Unit
+                      </label>
+                      <input
+                        type="text"
+                        value={item.unit}
+                        onChange={(e) => handleItemChange(index, 'unit', e.target.value)}
+                        placeholder="pcs"
+                        className="w-full px-2 py-1 text-xs rounded-lg border border-slate-300/80 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
 
-                        {/* Unit Price (Editable snapshot) */}
-                        <td className="p-2.5">
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
-                            value={item.unitPrice}
-                            onChange={(e) => handleItemChange(index, 'unitPrice', e.target.value)}
-                            className="w-full p-1.5 text-xs font-mono rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                          />
-                        </td>
+                    {/* Unit Price */}
+                    <div className="col-span-6">
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Unit Price ({activeCurrency})
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={item.unitPrice === 0 ? '' : item.unitPrice}
+                        onChange={(e) => handleItemChange(index, 'unitPrice', e.target.value)}
+                        placeholder="0"
+                        className="w-full px-2 py-1 text-xs font-mono font-bold rounded-lg border border-slate-300/80 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
 
-                        {/* Line Total */}
-                        <td className="p-2.5 text-right font-mono font-semibold text-slate-800 dark:text-slate-200">
-                          {formatCurrency(item.total, activeCurrency)}
-                        </td>
-
-                        {/* Remove Action */}
-                        <td className="p-2.5 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItem(index)}
-                            className="p-1 text-slate-400 hover:text-rose-500 rounded transition-colors"
-                            title="Remove Line"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  {/* Clean Item Total Bar */}
+                  <div className="flex items-center justify-between pt-1.5 border-t border-slate-100 dark:border-slate-800/80 text-xs">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Item Total:
+                    </span>
+                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      {formatCurrency(item.total, activeCurrency)}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Bottom section: Notes, instructions & Totals summary */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Payment Instructions & Accounts
-                </label>
-                <textarea
-                  rows={2}
-                  value={paymentInstructions}
-                  onChange={(e) => setPaymentInstructions(e.target.value)}
-                  placeholder="e.g. MTN MoMo Pay Merchant 894120 or Stanbic Bank Acc 9030018492041"
-                  className="w-full p-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white resize-none"
+          {/* Optional Notes & Payment details - Clean, un-prefilled */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                Payment Details / Instructions (Optional)
+              </label>
+              <textarea
+                rows={2}
+                value={paymentInstructions}
+                onChange={(e) => setPaymentInstructions(e.target.value)}
+                placeholder="e.g. MTN MoMo Pay: 894120 or Bank Acc details..."
+                className="w-full p-2 text-xs rounded-lg border border-slate-300/80 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                Terms & Notes (Optional)
+              </label>
+              <textarea
+                rows={2}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="e.g. 50% deposit on order, balance on delivery..."
+                className="w-full p-2 text-xs rounded-lg border border-slate-300/80 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          {/* Financial Totals Card - Trimmed */}
+          <div className="p-3.5 rounded-xl liquid-glass-subtle border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+            <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+              <span>Subtotal ({items.length} item{items.length !== 1 ? 's' : ''}):</span>
+              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                {formatCurrency(subtotal, activeCurrency)}
+              </span>
+            </div>
+
+            {/* Optional Tax & Discount in clean compact rows */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
+              <div className="flex items-center justify-between sm:justify-start gap-2">
+                <span className="text-[11px] text-slate-500">Tax/VAT (%):</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="any"
+                  value={taxPercent}
+                  onChange={(e) => setTaxPercent(e.target.value === '' ? '' : Number(e.target.value))}
+                  placeholder="0"
+                  className="w-16 px-2 py-1 text-xs font-mono rounded border border-slate-300/80 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-right"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Invoice Notes & Terms
-                </label>
-                <textarea
-                  rows={2}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. Goods once sold are not returnable without inspection. Thank you for your business."
-                  className="w-full p-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white resize-none"
+              <div className="flex items-center justify-between sm:justify-start gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-[11px] text-slate-500 whitespace-nowrap">Discount (%):</span>
+                  {discountNum > 0 && (
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono truncate">
+                      (-{formatCurrency(discountNum, activeCurrency)})
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="any"
+                  value={discountPercent}
+                  onChange={(e) => setDiscountPercent(e.target.value === '' ? '' : Math.max(0, Math.min(100, Number(e.target.value))))}
+                  placeholder="0"
+                  className="w-16 px-2 py-1 text-xs font-mono rounded border border-slate-300/80 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-right"
                 />
               </div>
             </div>
 
-            {/* Financial Totals Breakdown */}
-            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
-              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                <span>Subtotal ({items.length} items):</span>
-                <span className="font-mono font-medium text-slate-800 dark:text-slate-200">
-                  {formatCurrency(subtotal, activeCurrency)}
-                </span>
-              </div>
-
-              {/* Tax / VAT */}
-              <div className="flex justify-between items-center gap-2">
-                <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                  <span>Tax / VAT (%):</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    value={taxPercent}
-                    onChange={(e) => setTaxPercent(Number(e.target.value))}
-                    className="w-14 p-1 text-xs font-mono rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  />
-                </span>
-                <span className="font-mono text-slate-800 dark:text-slate-200">
-                  {formatCurrency(taxAmount, activeCurrency)}
-                </span>
-              </div>
-
-              {/* Discount Amount */}
-              <div className="flex justify-between items-center gap-2">
-                <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                  <span>Discount ({activeCurrency}):</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={discountAmount}
-                    onChange={(e) => setDiscountAmount(Number(e.target.value))}
-                    className="w-24 p-1 text-xs font-mono rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  />
-                </span>
-                <span className="font-mono text-emerald-600 dark:text-emerald-400">
-                  - {formatCurrency(discountAmount || 0, activeCurrency)}
-                </span>
-              </div>
-
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-sm">
-                <span className="font-bold text-slate-900 dark:text-white">
-                  Total Invoiced Debt:
-                </span>
-                <span className="font-mono font-bold text-base text-indigo-600 dark:text-indigo-400">
-                  {formatCurrency(grandTotal, activeCurrency)}
-                </span>
-              </div>
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center">
+              <span className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm">
+                Total Debt to Record:
+              </span>
+              <span className="font-mono font-extrabold text-base sm:text-lg text-indigo-600 dark:text-indigo-400">
+                {formatCurrency(grandTotal, activeCurrency)}
+              </span>
             </div>
           </div>
 
           {/* Action buttons */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800 shrink-0">
+          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200/60 dark:border-slate-800/60 shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+              className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-lg shadow-sm transition-colors"
+              className="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-xl shadow-sm transition-colors"
             >
               {invoiceToEdit ? 'Save Changes' : 'Issue Invoice'}
             </button>
           </div>
         </form>
       </div>
+
+      {/* Multi-Item Catalog Selector */}
+      <MultiItemSelectorModal
+        isOpen={showMultiSelector}
+        onClose={() => setShowMultiSelector(false)}
+        products={products}
+        onAddItems={handleBatchAddItems}
+      />
+
+      {/* Slide-Up Bottom Sheet: Customer Picker */}
+      <BottomSheetPicker
+        isOpen={showCustomerPicker}
+        onClose={() => setShowCustomerPicker(false)}
+        title="Select Customer"
+        options={customerOptions}
+        selectedId={selectedCustomerId}
+        onSelect={(id) => setSelectedCustomerId(id)}
+        searchPlaceholder="Search client by name, company, or phone..."
+      />
+
+      {/* Slide-Up Bottom Sheet: Product Catalog */}
+      <BottomSheetPicker
+        isOpen={activeItemIndexForCatalog !== null}
+        onClose={() => setActiveItemIndexForCatalog(null)}
+        title="Choose Product from Catalog"
+        options={productOptions}
+        onSelect={(prodId) => {
+          if (activeItemIndexForCatalog !== null) {
+            handleProductSelect(activeItemIndexForCatalog, prodId);
+          }
+        }}
+        searchPlaceholder="Search catalog items..."
+      />
     </div>
   );
 };

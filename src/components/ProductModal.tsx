@@ -29,18 +29,16 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
   const [errors, setErrors] = useState<{ name?: string; unitPrice?: string }>({});
 
-  const commonUnits = ['pcs', 'bags', 'kg', 'trips', 'meters', 'sets', 'buckets', 'hours', 'box', 'litres'];
+  const commonUnits = ['pcs', 'box', 'pack', 'sheet', 'roll', 'meters', 'sets', 'hours', 'sqm'];
   const commonCategories = [
-    'Masonry & Concrete',
-    'Structural Steel',
-    'Aggregates & Sand',
-    'Roofing & Cladding',
-    'Paints & Finishes',
-    'Electrical & Solar',
-    'Plumbing & Drainage',
-    'Timber & Carpentry',
-    'Professional Services',
-    'Hardware & Tools',
+    'Banners & Signage',
+    'Apparels & Merchandise',
+    'Paper Printing',
+    'Large Format Printing',
+    'Promotional Items',
+    'Corporate ID',
+    'Packaging & Labels',
+    'Graphic Design & Artwork',
   ];
 
   useEffect(() => {
@@ -48,7 +46,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       setFormData({
         name: productToEdit.name || '',
         sku: productToEdit.sku || '',
-        category: productToEdit.category || 'Masonry & Concrete',
+        category: productToEdit.category || '',
         unit: productToEdit.unit || 'pcs',
         unitPrice: String(productToEdit.unitPrice || ''),
         description: productToEdit.description || '',
@@ -57,7 +55,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       setFormData({
         name: '',
         sku: '',
-        category: 'Masonry & Concrete',
+        category: '',
         unit: 'pcs',
         unitPrice: '',
         description: '',
@@ -106,8 +104,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-lg liquid-glass rounded-2xl shadow-2xl overflow-hidden my-8 border border-white/30 dark:border-white/10">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/50 backdrop-blur-md overflow-y-auto animate-fade-in">
+      <div className="relative w-full max-w-lg liquid-glass rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden my-0 sm:my-8 border border-white/30 dark:border-white/10 animate-slide-up sm:animate-modal-pop">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200/60 dark:border-slate-800/60">
           <div className="flex items-center gap-2">
@@ -136,7 +134,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g. Portland Pozzolana Cement (50kg Bag)"
+                placeholder="e.g. Roll-up Banner (85x200cm)"
                 className={`w-full pl-9 pr-3 py-2 text-sm rounded-lg border ${
                   errors.name
                     ? 'border-rose-500 focus:ring-rose-500'
@@ -158,7 +156,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   type="text"
                   value={formData.sku}
                   onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                  placeholder="e.g. CEM-PP-050"
+                  placeholder="e.g. BNR-ROLL-01"
                   className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -237,7 +235,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               rows={2}
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="e.g. BS4449 Grade 500B high tensile strength reinforcement bar."
+              placeholder="e.g. Aluminium cassette stand with anti-curl PVC graphic print."
               className="w-full p-2.5 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
             />
           </div>

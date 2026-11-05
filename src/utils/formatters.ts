@@ -82,3 +82,10 @@ export function generateReceiptNumber(existingCount: number): string {
   const serial = String(existingCount + 1).padStart(4, '0');
   return `REC-${year}-${serial}`;
 }
+
+export function generateOrderNumber(existingCount: number): string {
+  const year = new Date().getFullYear();
+  const serial = String(existingCount + 1).padStart(4, '0');
+  return `ORD-${year}-${serial}`;
+}
+

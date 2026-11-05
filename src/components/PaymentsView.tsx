@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { useLedger } from '../context/LedgerContext';
 import { Payment } from '../types';
@@ -26,6 +26,10 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
   onViewCustomerStatement,
 }) => {
   const { payments, deletePayment, activeCurrency } = useLedger();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, []);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMethod, setSelectedMethod] = useState<string>('all');
@@ -238,9 +242,9 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
                         <button
                           onClick={() => onPrintReceipt(pay)}
                           className="p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                          title="Print Receipt Voucher"
+                          title="View & Download Receipt (PDF / PNG)"
                         >
-                          <Printer className="w-3.5 h-3.5" />
+                          <Download className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
                         </button>
                         <button
                           onClick={() => {

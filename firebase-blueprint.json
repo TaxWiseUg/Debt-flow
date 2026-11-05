@@ -85,6 +85,34 @@
       },
       "required": ["id", "receiptNumber", "customerId", "customerName", "amount", "currency", "paymentDate", "paymentMethod", "createdAt"]
     },
+    "ClientOrder": {
+      "title": "ClientOrder",
+      "description": "Client order record with line items, delivery date, status, and optional link to invoice",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderNumber": { "type": "string", "maxLength": 50 },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string", "maxLength": 200 },
+        "customerPhone": { "type": "string", "maxLength": 50 },
+        "customerEmail": { "type": "string", "maxLength": 150 },
+        "customerAddress": { "type": "string", "maxLength": 300 },
+        "currency": { "type": "string", "maxLength": 10 },
+        "orderDate": { "type": "string", "maxLength": 20 },
+        "deliveryDate": { "type": "string", "maxLength": 20 },
+        "subtotal": { "type": "number" },
+        "taxPercent": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "discountAmount": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "in_progress", "ready", "delivered", "invoiced", "cancelled"] },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "linkedInvoiceId": { "type": "string" },
+        "linkedInvoiceNumber": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "orderNumber", "customerId", "customerName", "currency", "orderDate", "totalAmount", "status", "createdAt"]
+    },
     "BusinessSettings": {
       "title": "BusinessSettings",
       "description": "Business profile and letterhead settings",
@@ -115,6 +143,10 @@
     "/products/{productId}": {
       "schema": { "$ref": "#/entities/Product" },
       "description": "Collection of catalog products with unit prices"
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/ClientOrder" },
+      "description": "Collection of client orders"
     },
     "/invoices/{invoiceId}": {
       "schema": { "$ref": "#/entities/Invoice" },

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Customer, Invoice, Payment, PaymentMethod } from '../types';
 import { useLedger } from '../context/LedgerContext';
 import {
@@ -10,11 +10,13 @@ import {
   Calendar,
   Smartphone,
   CheckCircle,
+  ChevronDown,
 } from 'lucide-react';
 import {
   formatCurrency,
   getTodayDateString,
 } from '../utils/formatters';
+import { BottomSheetPicker, PickerOption } from './BottomSheetPicker';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -49,6 +51,10 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<{ customer?: string; amount?: string }>({});
 
+  // Slide-up picker states
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false);
+  const [showInvoicePicker, setShowInvoicePicker] = useState(false);
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -65,7 +71,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       const balance = getCustomerBalance(preselectedCustomerId);
       setAmount(balance.balanceDue > 0 ? String(balance.balanceDue) : '');
     } else {
-      setCustomerId(customers[0]?.id || '');
+      setCustomerId('');
       setInvoiceId('');
       setAmount('');
     }
@@ -78,15 +84,49 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     setErrors({});
   }, [isOpen, preselectedCustomerId, preselectedInvoiceId]);
 
-  if (!isOpen) return null;
-
   // Unpaid invoices for this customer
-  const customerInvoices = invoices.filter(
-    inv => inv.customerId === customerId && inv.balanceDue > 0
-  );
+  const customerInvoices = useMemo(() => {
+    return invoices.filter(
+      inv => inv.customerId === customerId && inv.balanceDue > 0
+    );
+  }, [invoices, customerId]);
 
   const selectedInvoice = invoices.find(inv => inv.id === invoiceId);
+  const selectedCustomer = customers.find(c => c.id === customerId);
   const customerBalance = customerId ? getCustomerBalance(customerId) : null;
+
+  const customerOptions: PickerOption[] = useMemo(() => {
+    return customers.map(c => {
+      const bal = getCustomerBalance(c.id);
+      return {
+        id: c.id,
+        label: c.name,
+        subtitle: [c.companyName, c.phone].filter(Boolean).join(' · '),
+        badge: bal.balanceDue > 0 ? `Debt: ${formatCurrency(bal.balanceDue, activeCurrency)}` : 'Settled',
+      };
+    });
+  }, [customers, activeCurrency, getCustomerBalance]);
+
+  const invoiceOptions: PickerOption[] = useMemo(() => {
+    const list: PickerOption[] = [
+      {
+        id: '',
+        label: 'General Customer Account',
+        subtitle: 'Apply as on-account payment without linking to a specific invoice',
+      },
+    ];
+    customerInvoices.forEach(inv => {
+      list.push({
+        id: inv.id,
+        label: inv.invoiceNumber,
+        subtitle: `Due: ${inv.dueDate} · Total: ${formatCurrency(inv.totalAmount, activeCurrency)}`,
+        badge: `Due: ${formatCurrency(inv.balanceDue, activeCurrency)}`,
+      });
+    });
+    return list;
+  }, [customerInvoices, activeCurrency]);
+
+  if (!isOpen) return null;
 
   const handleCustomerChange = (newCustId: string) => {
     setCustomerId(newCustId);
@@ -150,8 +190,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-lg liquid-glass rounded-2xl shadow-2xl border border-white/30 dark:border-white/10 overflow-hidden my-6">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/50 backdrop-blur-md overflow-y-auto animate-fade-in">
+      <div className="relative w-full max-w-lg liquid-glass rounded-t-3xl sm:rounded-2xl shadow-2xl border border-white/30 dark:border-white/10 overflow-hidden my-0 sm:my-6 animate-slide-up sm:animate-modal-pop">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200/60 dark:border-slate-800/60">
           <div className="flex items-center gap-2.5">
@@ -182,28 +222,25 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Customer *
             </label>
-            <div className="relative">
-              <User className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-              <select
-                value={customerId}
-                onChange={(e) => handleCustomerChange(e.target.value)}
-                className={`w-full pl-9 pr-3 py-2 text-sm rounded-lg border ${
-                  errors.customer
-                    ? 'border-rose-500'
-                    : 'border-slate-300 dark:border-slate-700'
-                } bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500`}
-              >
-                <option value="">Select customer...</option>
-                {customers.map((c) => {
-                  const bal = getCustomerBalance(c.id);
-                  return (
-                    <option key={c.id} value={c.id}>
-                      {c.name} {bal.balanceDue > 0 ? `(Debt: ${formatCurrency(bal.balanceDue, activeCurrency)})` : '(No Debt)'}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowCustomerPicker(true)}
+              className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg border text-left ${
+                errors.customer
+                  ? 'border-rose-500'
+                  : 'border-slate-300 dark:border-slate-700'
+              } bg-white dark:bg-slate-800 text-slate-900 dark:text-white hover:border-indigo-500 transition-colors`}
+            >
+              <div className="flex items-center gap-2 truncate">
+                <User className="w-4 h-4 text-slate-400 shrink-0" />
+                <span className={selectedCustomer ? 'font-medium truncate' : 'text-slate-400'}>
+                  {selectedCustomer
+                    ? `${selectedCustomer.name}${selectedCustomer.companyName ? ` (${selectedCustomer.companyName})` : ''}`
+                    : 'Select customer...'}
+                </span>
+              </div>
+              <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+            </button>
             {errors.customer && (
               <p className="text-xs text-rose-500 mt-1">{errors.customer}</p>
             )}
@@ -223,21 +260,22 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Apply to Specific Invoice (Optional)
             </label>
-            <div className="relative">
-              <FileText className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-              <select
-                value={invoiceId}
-                onChange={(e) => handleInvoiceChange(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">-- On-Account Credit (General Customer Balance) --</option>
-                {customerInvoices.map((inv) => (
-                  <option key={inv.id} value={inv.id}>
-                    {inv.invoiceNumber} - Due: {inv.dueDate} (Balance: {formatCurrency(inv.balanceDue, activeCurrency)})
-                  </option>
-                ))}
-              </select>
-            </div>
+            <button
+              type="button"
+              disabled={!customerId}
+              onClick={() => setShowInvoicePicker(true)}
+              className="w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white hover:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
+            >
+              <div className="flex items-center gap-2 truncate">
+                <FileText className="w-4 h-4 text-slate-400 shrink-0" />
+                <span className={selectedInvoice ? 'font-medium truncate' : 'text-slate-500 dark:text-slate-400'}>
+                  {selectedInvoice
+                    ? `${selectedInvoice.invoiceNumber} (Balance: ${formatCurrency(selectedInvoice.balanceDue, activeCurrency)})`
+                    : (customerId ? '-- On-Account Credit (General Customer Balance) --' : 'Select a customer first')}
+                </span>
+              </div>
+              <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+            </button>
             {selectedInvoice && (
               <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 mt-1 px-1">
                 <span>Invoice Total: {formatCurrency(selectedInvoice.totalAmount, activeCurrency)}</span>
@@ -396,6 +434,28 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* Slide-Up Bottom Sheet: Customer Picker */}
+      <BottomSheetPicker
+        isOpen={showCustomerPicker}
+        onClose={() => setShowCustomerPicker(false)}
+        title="Select Customer"
+        options={customerOptions}
+        selectedId={customerId}
+        onSelect={(id) => handleCustomerChange(id)}
+        searchPlaceholder="Search customer by name, company, or phone..."
+      />
+
+      {/* Slide-Up Bottom Sheet: Specific Invoice */}
+      <BottomSheetPicker
+        isOpen={showInvoicePicker}
+        onClose={() => setShowInvoicePicker(false)}
+        title="Apply to Specific Invoice"
+        options={invoiceOptions}
+        selectedId={invoiceId}
+        onSelect={(id) => handleInvoiceChange(id)}
+        searchPlaceholder="Search invoice..."
+      />
     </div>
   );
 };

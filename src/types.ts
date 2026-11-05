@@ -26,7 +26,7 @@ export interface Product {
   name: string;
   sku: string;
   category: string;
-  unit: string; // 'pcs', 'kg', 'bags', 'hours', 'box', 'meters', 'set'
+  unit: string; // 'pcs', 'box', 'pack', 'sheet', 'roll', 'meters', 'sets', 'hours', 'sqm'
   unitPrice: number;
   description?: string;
   createdAt: string;
@@ -44,11 +44,51 @@ export interface InvoiceItem {
   total: number; // calculated line total
 }
 
+export type OrderStatus = 'pending' | 'in_progress' | 'ready' | 'delivered' | 'invoiced' | 'cancelled';
+
+export interface OrderItem {
+  id: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  total: number;
+}
+
+export interface ClientOrder {
+  id: string;
+  orderNumber: string; // e.g. "ORD-2026-0001"
+  customerId: string;
+  customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  customerAddress?: string;
+  currency: CurrencyCode;
+  orderDate: string; // YYYY-MM-DD
+  deliveryDate?: string; // YYYY-MM-DD
+  items: OrderItem[];
+  subtotal: number;
+  taxPercent: number;
+  taxAmount: number;
+  discountPercent?: number;
+  discountAmount: number;
+  totalAmount: number;
+  status: OrderStatus;
+  notes?: string;
+  linkedInvoiceId?: string;
+  linkedInvoiceNumber?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export type InvoiceStatus = 'draft' | 'issued' | 'partially_paid' | 'paid' | 'overdue';
 
 export interface Invoice {
   id: string;
   invoiceNumber: string; // e.g. "INV-2026-001"
+  orderId?: string;
+  orderNumber?: string;
   customerId: string;
   customerName: string;
   customerPhone?: string;
@@ -61,6 +101,7 @@ export interface Invoice {
   subtotal: number;
   taxPercent: number;
   taxAmount: number;
+  discountPercent?: number;
   discountAmount: number;
   totalAmount: number;
   paidAmount: number;

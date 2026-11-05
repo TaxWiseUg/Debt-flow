@@ -12,10 +12,13 @@ export default defineConfig(() => {
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
+        workbox: {
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        },
         manifest: {
           id: '/',
-          name: 'LedgerFlow - Invoicing & Debt Tracker',
-          short_name: 'LedgerFlow',
+          name: 'NexTone - Invoicing & Orders Tracker',
+          short_name: 'NexTone',
           description: 'Ugandan Shilling customer ledger, multi-item invoicing, catalog pricing, and debt tracking.',
           theme_color: '#4f46e5',
           background_color: '#0f172a',
