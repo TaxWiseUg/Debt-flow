@@ -24,6 +24,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     category: '',
     unit: 'pcs',
     unitPrice: '',
+    costPrice: '',
     description: '',
   });
 
@@ -49,6 +50,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         category: productToEdit.category || '',
         unit: productToEdit.unit || 'pcs',
         unitPrice: String(productToEdit.unitPrice || ''),
+        costPrice: productToEdit.costPrice ? String(productToEdit.costPrice) : '',
         description: productToEdit.description || '',
       });
     } else {
@@ -58,6 +60,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         category: '',
         unit: 'pcs',
         unitPrice: '',
+        costPrice: '',
         description: '',
       });
     }
@@ -88,6 +91,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       category: formData.category.trim() || 'General Items',
       unit: formData.unit.trim() || 'pcs',
       unitPrice: parseFloat(formData.unitPrice),
+      ...(formData.costPrice && parseFloat(formData.costPrice) > 0
+        ? { costPrice: parseFloat(formData.costPrice) }
+        : {}),
       ...(formData.description.trim() ? { description: formData.description.trim() } : {}),
     };
 

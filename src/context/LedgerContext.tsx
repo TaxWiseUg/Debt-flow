@@ -18,6 +18,8 @@ import {
   Payment,
   Product,
   ClientOrder,
+  InvoiceProfitMetrics,
+  BusinessProfitSummary,
 } from '../types';
 import {
   INITIAL_BUSINESS_PROFILE,
@@ -79,6 +81,8 @@ interface LedgerContextType {
   
   // Metrics & Summaries
   debtAging: DebtAgingSummary;
+  profitSummary: BusinessProfitSummary;
+  getInvoiceProfit: (invoice: Invoice) => InvoiceProfitMetrics;
   metrics: {
     totalDebt: number;
     totalBilled: number;
@@ -787,6 +791,82 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   }, [refreshedInvoices, payments]);
 
+  // Helper to calculate realized profit for any invoice
+  const getInvoiceProfit = (inv: Invoice): InvoiceProfitMetrics => {
+    let totalCost = 0;
+    if (typeof inv.totalCost === 'number' && inv.totalCost > 0) {
+      totalCost = inv.totalCost;
+    } else if (Array.isArray(inv.items) && inv.items.length > 0) {
+      totalCost = inv.items.reduce((sum, item) => {
+        const qty = item.quantity > 0 ? item.quantity : 1;
+        if (typeof item.costPrice === 'number' && item.costPrice > 0) {
+          return sum + item.costPrice * qty;
+        }
+        const catalogProd = products.find(
+          p => p.id === item.productId || p.name.toLowerCase() === item.productName.toLowerCase()
+        );
+        if (catalogProd?.costPrice && catalogProd.costPrice > 0) {
+          return sum + catalogProd.costPrice * qty;
+        }
+        // Realistic fallback for print shop: 50% material & overhead production cost
+        return sum + (item.unitPrice * 0.5) * qty;
+      }, 0);
+    }
+
+    const totalBilled = inv.totalAmount || 0;
+    const paidAmount = inv.paidAmount || 0;
+    const invoicedProfit = Math.max(0, totalBilled - totalCost);
+    const paidRatio = totalBilled > 0 ? Math.min(1, Math.max(0, paidAmount / totalBilled)) : 0;
+    const realizedProfit = Math.round(invoicedProfit * paidRatio);
+    const lockedProfit = Math.max(0, invoicedProfit - realizedProfit);
+    const marginPercent = totalBilled > 0 ? Math.round((invoicedProfit / totalBilled) * 100) : 0;
+
+    return {
+      totalCost,
+      totalBilled,
+      paidAmount,
+      invoicedProfit,
+      realizedProfit,
+      lockedProfit,
+      marginPercent,
+      paidRatio,
+    };
+  };
+
+  // Business-wide Profit Analytics (Realized from Cash Collected vs Invoiced Debt)
+  const profitSummary = useMemo<BusinessProfitSummary>(() => {
+    let totalRevenueBilled = 0;
+    let totalCashCollected = 0;
+    let totalProductionCost = 0;
+    let invoicedGrossProfit = 0;
+    let realizedCashProfit = 0;
+    let lockedProfitInReceivables = 0;
+
+    refreshedInvoices.forEach(inv => {
+      const p = getInvoiceProfit(inv);
+      totalRevenueBilled += p.totalBilled;
+      totalCashCollected += p.paidAmount;
+      totalProductionCost += p.totalCost;
+      invoicedGrossProfit += p.invoicedProfit;
+      realizedCashProfit += p.realizedProfit;
+      lockedProfitInReceivables += p.lockedProfit;
+    });
+
+    const realizedMarginPercent = totalCashCollected > 0
+      ? Math.round((realizedCashProfit / totalCashCollected) * 100)
+      : (totalRevenueBilled > 0 ? Math.round((invoicedGrossProfit / totalRevenueBilled) * 100) : 0);
+
+    return {
+      totalRevenueBilled,
+      totalCashCollected,
+      totalProductionCost,
+      invoicedGrossProfit,
+      realizedCashProfit,
+      lockedProfitInReceivables,
+      realizedMarginPercent,
+    };
+  }, [refreshedInvoices, products]);
+
   // Update business profile
   const updateBusinessProfile = async (updates: Partial<BusinessProfile>) => {
     const merged = { ...businessProfile, ...updates };
@@ -1026,6 +1106,8 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         deletePayment,
         debtAging,
         metrics,
+        profitSummary,
+        getInvoiceProfit,
         clearAllData,
         exportDataJson,
         importDataJson,

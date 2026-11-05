@@ -55,6 +55,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     orders,
     metrics,
     debtAging,
+    profitSummary,
     activeCurrency,
     businessProfile,
     getCustomerBalance,
@@ -321,6 +322,76 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {metrics.overdueInvoicesCount > 0 && (
               <span className="text-amber-600 font-bold">Action Needed</span>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Realized Cash Profit Intelligence Panel */}
+      <div className="p-5 sm:p-6 rounded-2xl liquid-glass border border-emerald-500/20 space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pb-3 border-b border-slate-200/60 dark:border-slate-800/60">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-1.5">
+                <TrendingUp className="w-4 h-4 text-emerald-500" />
+                <span>Cash Realized Profit vs. Invoiced Debt</span>
+              </h2>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold">
+                Money Received Basis
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              Net earnings realized strictly from collected payments minus production outlay, plus profits pending in customer debt
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">Realized Cash Margin:</span>
+            <span className="font-mono text-sm font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+              {profitSummary.realizedMarginPercent}%
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          {/* Realized Cash Profit */}
+          <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/50 space-y-1">
+            <div className="flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
+              <span className="font-semibold">Realized Cash Profit</span>
+              <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+            </div>
+            <div className="font-mono text-lg font-black text-emerald-700 dark:text-emerald-400">
+              {formatCurrency(profitSummary.realizedCashProfit, activeCurrency)}
+            </div>
+            <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80">
+              Bankable earnings from payments collected
+            </p>
+          </div>
+
+          {/* Locked Profit in Receivables */}
+          <div className="p-3.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/50 space-y-1">
+            <div className="flex items-center justify-between text-xs text-amber-800 dark:text-amber-300">
+              <span className="font-semibold">Profit Locked in Debt</span>
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+            </div>
+            <div className="font-mono text-lg font-black text-amber-700 dark:text-amber-400">
+              {formatCurrency(profitSummary.lockedProfitInReceivables, activeCurrency)}
+            </div>
+            <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80">
+              Earnings pending customer settlement
+            </p>
+          </div>
+
+          {/* Production & Material Cost Basis */}
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-1">
+            <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+              <span className="font-semibold">Total Production Cost</span>
+              <CreditCard className="w-3.5 h-3.5 text-slate-400" />
+            </div>
+            <div className="font-mono text-lg font-black text-slate-800 dark:text-slate-200">
+              {formatCurrency(profitSummary.totalProductionCost, activeCurrency)}
+            </div>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400">
+              Raw materials, printing blanks & overhead
+            </p>
           </div>
         </div>
       </div>

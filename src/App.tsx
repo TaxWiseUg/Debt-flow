@@ -22,6 +22,8 @@ import { CustomerModal } from './components/CustomerModal';
 import { ProductModal } from './components/ProductModal';
 import { PrintDocumentModal, DocumentType } from './components/PrintDocumentModal';
 import { SettingsModal } from './components/SettingsModal';
+import { AgentDrawer } from './components/AgentDrawer';
+import { AgentTrigger } from './components/AgentTrigger';
 
 function AppContent() {
   const { customers, products, orders, addOrder, updateOrder } = useLedger();
@@ -73,6 +75,7 @@ function AppContent() {
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
 
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [agentDrawerOpen, setAgentDrawerOpen] = useState(false);
 
   // Print Document Modal states
   const [printModalOpen, setPrintModalOpen] = useState(false);
@@ -364,6 +367,19 @@ function AppContent() {
         payment={printPayment}
         customer={printCustomer}
         order={printOrder}
+      />
+
+      {/* Autonomous NexTone AI Copilot */}
+      <AgentTrigger
+        onClick={() => setAgentDrawerOpen(true)}
+        isOpen={agentDrawerOpen}
+      />
+
+      <AgentDrawer
+        isOpen={agentDrawerOpen}
+        onClose={() => setAgentDrawerOpen(false)}
+        onOpenOrderModal={handleOpenNewOrder}
+        onOpenInvoiceModal={handleOpenNewInvoice}
       />
     </div>
   );

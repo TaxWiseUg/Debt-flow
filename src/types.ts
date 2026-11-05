@@ -28,6 +28,7 @@ export interface Product {
   category: string;
   unit: string; // 'pcs', 'box', 'pack', 'sheet', 'roll', 'meters', 'sets', 'hours', 'sqm'
   unitPrice: number;
+  costPrice?: number; // Production / material cost basis
   description?: string;
   createdAt: string;
   updatedAt?: string;
@@ -40,6 +41,7 @@ export interface InvoiceItem {
   quantity: number;
   unit: string;
   unitPrice: number; // Snapshot unit price at sale
+  costPrice?: number; // Cost basis per unit
   discountPercent?: number;
   total: number; // calculated line total
 }
@@ -53,6 +55,7 @@ export interface OrderItem {
   quantity: number;
   unit: string;
   unitPrice: number;
+  costPrice?: number; // Cost basis per unit
   total: number;
 }
 
@@ -106,6 +109,7 @@ export interface Invoice {
   totalAmount: number;
   paidAmount: number;
   balanceDue: number;
+  totalCost?: number; // Estimated or itemized COGS
   status: InvoiceStatus;
   notes?: string;
   paymentInstructions?: string;
@@ -166,3 +170,49 @@ export interface DebtAgingSummary {
   daysOver60: number; // 60+ days overdue
   totalOverdue: number;
 }
+
+export interface InvoiceProfitMetrics {
+  totalCost: number;
+  totalBilled: number;
+  paidAmount: number;
+  invoicedProfit: number;
+  realizedProfit: number;
+  lockedProfit: number;
+  marginPercent: number;
+  paidRatio: number;
+}
+
+export interface BusinessProfitSummary {
+  totalRevenueBilled: number;
+  totalCashCollected: number;
+  totalProductionCost: number;
+  invoicedGrossProfit: number;
+  realizedCashProfit: number;
+  lockedProfitInReceivables: number;
+  realizedMarginPercent: number;
+}
+
+export type AgentRole = 'user' | 'assistant' | 'system';
+
+export interface AgentAction {
+  id: string;
+  type: 'add_to_catalog' | 'create_order' | 'issue_invoice' | 'record_payment' | 'evaluate_discount';
+  status: 'pending' | 'executed' | 'cancelled';
+  title: string;
+  payload: any;
+  resultMessage?: string;
+}
+
+export interface AgentMessage {
+  id: string;
+  role: AgentRole;
+  content: string;
+  timestamp: string;
+  actions?: AgentAction[];
+  profitInsight?: {
+    projectedMargin: number;
+    realizedCashMargin?: number;
+    decisionRecommendation?: string;
+  };
+}
+
