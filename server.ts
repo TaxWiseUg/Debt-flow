@@ -13,27 +13,23 @@ app.use(express.json({ limit: '10mb' }));
 // Server-side Gemini client
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
-  },
+  httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
 });
 
-// Autonomous Function Declarations for NexTone Operations
+// ── Function Declarations ──────────────────────────────────────────────────
 const addToCatalogDeclaration: FunctionDeclaration = {
   name: 'add_to_catalog',
-  description: 'Autonomously adds a new printing or branding product/service to the NexTone catalog with selling price and production cost.',
+  description: 'Adds a new product or service to the catalog with selling price and production cost.',
   parameters: {
     type: Type.OBJECT,
     properties: {
       name: { type: Type.STRING, description: 'Product or service name' },
       sku: { type: Type.STRING, description: 'Optional unique SKU or item code' },
-      category: { type: Type.STRING, description: 'Category e.g. Banners & Signage, Apparels & Merchandise, Paper Printing, Large Format' },
+      category: { type: Type.STRING, description: 'Category e.g. Banners & Signage, Apparels, Paper Printing, Large Format' },
       unit: { type: Type.STRING, description: 'Unit of measure e.g. pcs, box, pack, sqm, sheet, roll' },
       unitPrice: { type: Type.NUMBER, description: 'Selling price per unit in UGX' },
-      costPrice: { type: Type.NUMBER, description: 'Raw material and production cost per unit in UGX' },
-      description: { type: Type.STRING, description: 'Item specifications, paper weight, or print finishes' },
+      costPrice: { type: Type.NUMBER, description: 'Production cost per unit in UGX' },
+      description: { type: Type.STRING, description: 'Item specifications or print finishes' },
     },
     required: ['name', 'unitPrice'],
   },
@@ -41,19 +37,19 @@ const addToCatalogDeclaration: FunctionDeclaration = {
 
 const createOrderDeclaration: FunctionDeclaration = {
   name: 'create_order',
-  description: 'Autonomously drafts or creates a new client job order in the NexTone production tracking system.',
+  description: 'Drafts a new client job order.',
   parameters: {
     type: Type.OBJECT,
     properties: {
-      customerId: { type: Type.STRING, description: 'ID of existing customer, or empty if new client' },
+      customerId: { type: Type.STRING, description: 'ID of existing customer, or empty if new' },
       customerName: { type: Type.STRING, description: 'Name of the client' },
       items: {
         type: Type.ARRAY,
-        description: 'List of order specifications and quantities',
+        description: 'Order line items',
         items: {
           type: Type.OBJECT,
           properties: {
-            productName: { type: Type.STRING, description: 'Name or specification description' },
+            productName: { type: Type.STRING, description: 'Item name or specification' },
             quantity: { type: Type.NUMBER, description: 'Quantity required' },
             unit: { type: Type.STRING, description: 'Unit e.g. pcs' },
             unitPrice: { type: Type.NUMBER, description: 'Unit selling price in UGX' },
@@ -62,9 +58,9 @@ const createOrderDeclaration: FunctionDeclaration = {
           required: ['productName', 'quantity', 'unitPrice'],
         },
       },
-      deliveryDate: { type: Type.STRING, description: 'Target delivery or completion date (YYYY-MM-DD)' },
-      discountPercent: { type: Type.NUMBER, description: 'Discount percentage approved (0-100)' },
-      notes: { type: Type.STRING, description: 'Special printing instructions or delivery notes' },
+      deliveryDate: { type: Type.STRING, description: 'Target delivery date (YYYY-MM-DD)' },
+      discountPercent: { type: Type.NUMBER, description: 'Discount percentage (0-100)' },
+      notes: { type: Type.STRING, description: 'Special instructions or delivery notes' },
     },
     required: ['customerName', 'items'],
   },
@@ -72,7 +68,7 @@ const createOrderDeclaration: FunctionDeclaration = {
 
 const issueInvoiceDeclaration: FunctionDeclaration = {
   name: 'issue_invoice',
-  description: 'Autonomously issues a formal billing invoice with payment terms and records customer debt.',
+  description: 'Issues a formal billing invoice and records customer debt.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -95,7 +91,7 @@ const issueInvoiceDeclaration: FunctionDeclaration = {
       dueDate: { type: Type.STRING, description: 'Due date (YYYY-MM-DD)' },
       discountPercent: { type: Type.NUMBER, description: 'Discount percentage' },
       taxPercent: { type: Type.NUMBER, description: 'Tax percentage e.g. 18 for VAT or 0' },
-      notes: { type: Type.STRING, description: 'Invoice payment terms and bank/MoMo details' },
+      notes: { type: Type.STRING, description: 'Invoice payment terms' },
     },
     required: ['customerName', 'items'],
   },
@@ -103,7 +99,7 @@ const issueInvoiceDeclaration: FunctionDeclaration = {
 
 const evaluateDiscountDeclaration: FunctionDeclaration = {
   name: 'evaluate_discount_and_profit',
-  description: 'Analyzes margins and customer debt history to formally approve, reject, or adjust a discount request.',
+  description: 'Analyzes margins and customer debt history to approve, reject, or adjust a discount request.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -111,28 +107,26 @@ const evaluateDiscountDeclaration: FunctionDeclaration = {
       customerName: { type: Type.STRING, description: 'Client name' },
       orderValue: { type: Type.NUMBER, description: 'Gross order value before discount in UGX' },
       requestedDiscountPercent: { type: Type.NUMBER, description: 'Discount requested by client' },
-      estimatedCost: { type: Type.NUMBER, description: 'Estimated production/material cost in UGX' },
-      approvedDiscountPercent: { type: Type.NUMBER, description: 'Agent approved discount percent (or 0 if rejected)' },
-      projectedProfitUGX: { type: Type.NUMBER, description: 'Net profit in UGX after discount' },
+      estimatedCost: { type: Type.NUMBER, description: 'Estimated production cost in UGX' },
+      approvedDiscountPercent: { type: Type.NUMBER, description: 'Agent approved discount (or 0 if rejected)' },
+      projectedProfitUGX: { type: Type.NUMBER, description: 'Net profit after discount in UGX' },
       projectedMarginPercent: { type: Type.NUMBER, description: 'Net profit margin percentage' },
-      decisionRationale: { type: Type.STRING, description: 'Business justification for granting or declining discount' },
+      decisionRationale: { type: Type.STRING, description: 'Business justification for the decision' },
     },
     required: ['orderValue', 'approvedDiscountPercent', 'decisionRationale'],
   },
 };
 
-const agentTools = [
-  {
-    functionDeclarations: [
-      addToCatalogDeclaration,
-      createOrderDeclaration,
-      issueInvoiceDeclaration,
-      evaluateDiscountDeclaration,
-    ],
-  },
-];
+const agentTools = [{
+  functionDeclarations: [
+    addToCatalogDeclaration,
+    createOrderDeclaration,
+    issueInvoiceDeclaration,
+    evaluateDiscountDeclaration,
+  ],
+}];
 
-// Agent Chat API Route
+// ── Agent Chat API Route ────────────────────────────────────────────────────
 app.post('/api/agent/chat', async (req, res) => {
   try {
     const { message, conversation, activeContext } = req.body;
@@ -151,92 +145,73 @@ app.post('/api/agent/chat', async (req, res) => {
       businessProfile = {},
     } = activeContext || {};
 
+    const businessName: string = (businessProfile as any).name || 'this business';
+
     const userPrompt = (
       message || (conversation && conversation.length > 0 ? conversation[conversation.length - 1].content : '')
     ).trim();
 
-    // Fast-path for simple greetings to provide instant sub-second response
     const isSimpleGreeting = /^(hi|hello|hey|good\s*(morning|afternoon|evening)|yo|greetings)[!.]?$/i.test(userPrompt);
 
-    // Build rich system instruction with real-time business facts
-    const systemInstruction = `You are the executive Autonomous AI Operations & Decision-Making Agent for "NexTone" (Printing, Branding & Custom Media Solutions).
-Strict Brand Rule: The brand name is strictly "NexTone" (capital N and T, never NextOne or next one). Keep conversational greetings concise and prompt.
+    const systemInstruction = `You are the Autonomous AI Operations & Decision-Making Agent for "${businessName}".
+Keep responses concise and professional. Never hallucinate data.
 
-You possess FULL ACCESS and deep real-time awareness of the entire business system:
-- Business: ${businessProfile.name || 'NexTone'} · Products in catalog: ${products.length} · Customers: ${customers.length} · Invoices: ${invoices.length}
-- Realized Cash Profit: UGX ${(profitSummary.realizedCashProfit || 0).toLocaleString()} (${profitSummary.realizedMarginPercent || 0}% margin)
-- Total Cash Collected: UGX ${(profitSummary.totalCashCollected || 0).toLocaleString()} | Unpaid Customer Debt: UGX ${(profitSummary.lockedProfitInReceivables || 0).toLocaleString()}
+Real-time business snapshot:
+- Business: ${businessName} · Catalog: ${products.length} items · Customers: ${customers.length} · Invoices: ${invoices.length}
+- Realized Cash Profit: UGX ${((profitSummary as any).realizedCashProfit || 0).toLocaleString()} (${(profitSummary as any).realizedMarginPercent || 0}% margin)
+- Cash Collected: UGX ${((profitSummary as any).totalCashCollected || 0).toLocaleString()} | Locked in Receivables: UGX ${((profitSummary as any).lockedProfitInReceivables || 0).toLocaleString()}
 
-Catalog overview:
-${products.slice(0, 20).map((p: any) => `- ${p.name} (SKU: ${p.sku}, Cat: ${p.category}): Selling Price = UGX ${p.unitPrice?.toLocaleString()} / ${p.unit || 'pcs'} | Cost = UGX ${(p.costPrice || 0)?.toLocaleString()}`).join('\n') || 'Catalog empty'}
+Top catalog items (max 20):
+${(products as any[]).slice(0, 20).map(p => `- ${p.name} (${p.sku}): UGX ${p.unitPrice?.toLocaleString()}/${p.unit || 'pcs'}, cost UGX ${(p.costPrice || 0).toLocaleString()}`).join('\n') || 'Empty'}
 
-Recent Invoices:
-${invoices.slice(0, 10).map((i: any) => `- ${i.invoiceNumber}: ${i.customerName} | Billed = UGX ${i.totalAmount?.toLocaleString()} | Paid = UGX ${i.paidAmount?.toLocaleString()} | Due = UGX ${i.balanceDue?.toLocaleString()}`).join('\n') || 'No invoices yet'}
+Recent invoices (max 10):
+${(invoices as any[]).slice(0, 10).map(i => `- ${i.invoiceNumber}: ${i.customerName} | Total UGX ${i.totalAmount?.toLocaleString()} | Paid UGX ${i.paidAmount?.toLocaleString()} | Due UGX ${i.balanceDue?.toLocaleString()}`).join('\n') || 'None'}
 
-OPERATIONS RULES:
-1. Autonomously execute tools when asked:
-   - "add_to_catalog" to add products with costPrice & unitPrice
-   - "create_order" to draft client orders
-   - "issue_invoice" to issue billing invoices
-   - "evaluate_discount_and_profit" to evaluate discount requests against the 20% margin floor and debt history
-2. When greeting or answering basic queries, respond directly and concisely.`;
+RULES:
+1. Use tools autonomously when asked: add_to_catalog, create_order, issue_invoice, evaluate_discount_and_profit.
+2. Enforce a 20% gross margin floor before approving discounts.
+3. Answer basic queries directly and concisely without tool calls.`;
 
-    // Format chat history, filtering out synthetic initial greetings so history starts with a user turn
     const rawHistory = (conversation || [])
       .slice(0, -1)
       .filter((msg: any) => msg.role === 'user' || (msg.role === 'assistant' && msg.id !== 'welcome_1'));
 
-    // Ensure valid turn alternation starting with 'user'
     const validHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
     let expectedRole: 'user' | 'model' = 'user';
-
     for (const msg of rawHistory) {
       const currentRole = msg.role === 'assistant' ? 'model' : 'user';
       if (currentRole === expectedRole) {
-        validHistory.push({
-          role: currentRole,
-          parts: [{ text: msg.content }],
-        });
+        validHistory.push({ role: currentRole, parts: [{ text: msg.content }] });
         expectedRole = expectedRole === 'user' ? 'model' : 'user';
       }
     }
 
-    // Call Gemini with gemini-3.1-flash-lite for ultra-fast response (<1s) and timeout protection
     let result: any = null;
-    let timedOut = false;
 
     try {
       const chat = ai.chats.create({
-        model: 'gemini-3.1-flash-lite',
-        config: {
-          systemInstruction,
-          tools: agentTools,
-        },
+        model: 'gemini-2.0-flash-lite',
+        config: { systemInstruction, tools: agentTools },
         history: validHistory,
       });
 
       const callPromise = chat.sendMessage({ message: userPrompt });
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => {
-          timedOut = true;
-          reject(new Error('AI response timeout'));
-        }, 7500)
+        setTimeout(() => reject(new Error('AI response timeout')), 7500)
       );
 
       result = await Promise.race([callPromise, timeoutPromise]);
     } catch (apiErr: any) {
-      console.warn('Gemini API call warn/timeout:', apiErr?.message);
-      // If simple greeting and API had a transient timeout/503 spike, answer instantly
+      console.warn('Gemini API warn/timeout:', apiErr?.message);
       if (isSimpleGreeting) {
         return res.json({
-          text: `Hello! I am your **NexTone Copilot**. I'm actively tracking your catalog (${products.length} items), ${customers.length} clients, and **UGX ${(profitSummary.realizedCashProfit || 0).toLocaleString()}** in realized cash profit.\n\nHow can I assist your operations right now?`,
+          text: `Hello! I'm tracking your catalog (${products.length} items), ${customers.length} clients, and UGX ${((profitSummary as any).realizedCashProfit || 0).toLocaleString()} in realized cash profit. How can I help?`,
           actions: [],
         });
       }
       throw apiErr;
     }
 
-    // Extract tool calls / actions
     const candidate = result?.candidates?.[0];
     const functionCalls = candidate?.content?.parts?.filter((p: any) => p.functionCall) || [];
 
@@ -257,55 +232,45 @@ OPERATIONS RULES:
       };
     });
 
-    // Extract response text
     let responseText = result?.text || '';
     if (!responseText && actions.length > 0) {
-      if (actions[0].type === 'add_to_catalog') {
-        responseText = `I have added **${actions[0].payload.name}** to the NexTone catalog at UGX ${actions[0].payload.unitPrice?.toLocaleString()} with a production cost basis of UGX ${(actions[0].payload.costPrice || 0)?.toLocaleString()}.`;
-      } else if (actions[0].type === 'create_order') {
-        responseText = `I have drafted the order for **${actions[0].payload.customerName}** with ${actions[0].payload.items?.length || 0} items. You can review the details below.`;
-      } else if (actions[0].type === 'issue_invoice') {
-        responseText = `I have prepared the invoice for **${actions[0].payload.customerName}**.`;
-      } else if (actions[0].type === 'evaluate_discount_and_profit') {
-        const p = actions[0].payload;
-        responseText = `### Margin & Discount Analysis\n- **Order Value**: UGX ${p.orderValue?.toLocaleString()}\n- **Approved Discount**: ${p.approvedDiscountPercent}%\n- **Projected Net Profit**: UGX ${p.projectedProfitUGX?.toLocaleString()} (${p.projectedMarginPercent}% Margin)\n\n**Decision**: ${p.decisionRationale}`;
+      const a = actions[0];
+      if (a.type === 'add_to_catalog') {
+        responseText = `Added **${a.payload.name}** to catalog at UGX ${a.payload.unitPrice?.toLocaleString()} (cost UGX ${(a.payload.costPrice || 0).toLocaleString()}).`;
+      } else if (a.type === 'create_order') {
+        responseText = `Order drafted for **${a.payload.customerName}** — ${a.payload.items?.length || 0} items.`;
+      } else if (a.type === 'issue_invoice') {
+        responseText = `Invoice prepared for **${a.payload.customerName}**.`;
+      } else if (a.type === 'evaluate_discount_and_profit') {
+        const p = a.payload;
+        responseText = `### Discount Analysis\n- **Order Value**: UGX ${p.orderValue?.toLocaleString()}\n- **Approved Discount**: ${p.approvedDiscountPercent}%\n- **Net Profit**: UGX ${p.projectedProfitUGX?.toLocaleString()} (${p.projectedMarginPercent}% margin)\n\n**Decision**: ${p.decisionRationale}`;
       }
     } else if (!responseText && isSimpleGreeting) {
-      responseText = `Hello! How can I assist you with NexTone today?`;
+      responseText = `Hello! How can I assist with ${businessName} today?`;
     }
 
-    return res.json({
-      text: responseText,
-      actions,
-    });
+    return res.json({ text: responseText, actions });
   } catch (error: any) {
-    console.error('Gemini Agent Error:', error);
-    return res.status(500).json({
-      error: error.message || 'Failed to process agent request',
-    });
+    console.error('Agent Error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to process agent request' });
   }
 });
 
-// Dev / Prod Vite server integration
+// ── Dev / Prod Vite integration ────────────────────────────────────────────
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: {
-        middlewareMode: true,
-        hmr: false,
-      },
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
     app.use(express.static('dist'));
-    app.get('*', (req, res) => {
-      res.sendFile('dist/index.html', { root: '.' });
-    });
+    app.get('*', (_req, res) => res.sendFile('dist/index.html', { root: '.' }));
   }
 
   app.listen(port, '0.0.0.0', () => {
-    console.log(`NexTone server running on http://0.0.0.0:${port}`);
+    console.log(`Server running on http://0.0.0.0:${port}`);
   });
 }
 

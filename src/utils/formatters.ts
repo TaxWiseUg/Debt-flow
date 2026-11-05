@@ -13,14 +13,14 @@ export const CURRENCY_CONFIGS: Record<CurrencyCode, CurrencyConfig> = {
 export function formatCurrency(amount: number, currency: CurrencyCode = 'UGX'): string {
   const config = CURRENCY_CONFIGS[currency] || CURRENCY_CONFIGS.UGX;
   const absAmount = Math.abs(amount);
-  
+
   const formattedNumber = new Intl.NumberFormat('en-US', {
     minimumFractionDigits: config.decimals,
     maximumFractionDigits: config.decimals,
   }).format(absAmount);
 
   const sign = amount < 0 ? '-' : '';
-  
+
   if (config.position === 'prefix') {
     return `${sign}${config.symbol} ${formattedNumber}`;
   }
@@ -71,21 +71,28 @@ export function calculateDaysOverdue(dueDateString: string): number {
   return Math.max(0, diffDays);
 }
 
-export function generateInvoiceNumber(existingCount: number): string {
-  const year = new Date().getFullYear();
-  const serial = String(existingCount + 1).padStart(4, '0');
-  return `INV-${year}-${serial}`;
+/** Collision-safe: timestamp-based suffix avoids duplicate numbers on concurrent creates. */
+function timestampSuffix(): string {
+  return Date.now().toString(36).toUpperCase().slice(-5);
 }
 
-export function generateReceiptNumber(existingCount: number): string {
-  const year = new Date().getFullYear();
-  const serial = String(existingCount + 1).padStart(4, '0');
-  return `REC-${year}-${serial}`;
+export function generateInvoiceNumber(existingCount?: number): string {
+  const serial = existingCount !== undefined
+    ? `${String(existingCount + 1).padStart(4, '0')}-${timestampSuffix()}`
+    : timestampSuffix();
+  return `INV-${new Date().getFullYear()}-${serial}`;
 }
 
-export function generateOrderNumber(existingCount: number): string {
-  const year = new Date().getFullYear();
-  const serial = String(existingCount + 1).padStart(4, '0');
-  return `ORD-${year}-${serial}`;
+export function generateReceiptNumber(existingCount?: number): string {
+  const serial = existingCount !== undefined
+    ? `${String(existingCount + 1).padStart(4, '0')}-${timestampSuffix()}`
+    : timestampSuffix();
+  return `REC-${new Date().getFullYear()}-${serial}`;
 }
 
+export function generateOrderNumber(existingCount?: number): string {
+  const serial = existingCount !== undefined
+    ? `${String(existingCount + 1).padStart(4, '0')}-${timestampSuffix()}`
+    : timestampSuffix();
+  return `ORD-${new Date().getFullYear()}-${serial}`;
+}

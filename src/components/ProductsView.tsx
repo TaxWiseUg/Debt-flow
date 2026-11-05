@@ -119,22 +119,22 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       </div>
 
       {/* Catalog Metric Strip with Liquid Glass */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-5 sm:p-6 rounded-2xl liquid-glass shadow-xs text-xs">
-        <div>
-          <span className="text-slate-500 dark:text-slate-400">Total Items in Catalog:</span>
-          <p className="font-mono text-lg font-bold text-slate-900 dark:text-white mt-1">
+      <div className="flex flex-row items-center p-4 sm:p-5 rounded-2xl liquid-glass shadow-xs text-xs divide-x divide-slate-200 dark:divide-slate-800">
+        <div className="flex-1 min-w-0 pr-3 sm:pr-5">
+          <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium block truncate">Total Items in Catalog</span>
+          <p className="font-mono text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-0.5 truncate">
             {products.length} products & services
           </p>
         </div>
-        <div>
-          <span className="text-slate-500 dark:text-slate-400">Product Categories:</span>
-          <p className="font-mono text-lg font-bold text-indigo-600 dark:text-indigo-400 mt-1">
+        <div className="flex-1 min-w-0 px-3 sm:px-5">
+          <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium block truncate">Product Categories</span>
+          <p className="font-mono text-sm sm:text-base font-bold text-indigo-600 dark:text-indigo-400 mt-0.5 truncate">
             {categories.length - 1} active groups
           </p>
         </div>
-        <div>
-          <span className="text-slate-500 dark:text-slate-400">Snapshot Integrity:</span>
-          <p className="text-slate-700 dark:text-slate-300 mt-1 font-medium">
+        <div className="flex-1 min-w-0 pl-3 sm:pl-5">
+          <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium block truncate">Snapshot Integrity</span>
+          <p className="text-sm sm:text-base text-slate-700 dark:text-slate-300 mt-0.5 font-medium truncate">
             Historical invoices preserve sale-date pricing
           </p>
         </div>

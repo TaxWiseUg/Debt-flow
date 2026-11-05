@@ -23,7 +23,6 @@ import { ProductModal } from './components/ProductModal';
 import { PrintDocumentModal, DocumentType } from './components/PrintDocumentModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AgentDrawer } from './components/AgentDrawer';
-import { AgentTrigger } from './components/AgentTrigger';
 
 function AppContent() {
   const { customers, products, orders, addOrder, updateOrder } = useLedger();
@@ -202,16 +201,12 @@ function AppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100/70 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors relative selection:bg-indigo-500/20 overflow-x-hidden">
-      {/* Ambient background light orbs for liquid glass refraction */}
-      <div className="fixed -top-32 -left-32 w-96 h-96 bg-indigo-500/15 dark:bg-indigo-600/15 rounded-full blur-3xl pointer-events-none -z-10" />
-      <div className="fixed top-1/4 -right-32 w-[32rem] h-[32rem] bg-sky-400/15 dark:bg-sky-500/10 rounded-full blur-3xl pointer-events-none -z-10" />
-      <div className="fixed -bottom-32 left-1/4 w-[28rem] h-[28rem] bg-violet-500/10 dark:bg-violet-600/10 rounded-full blur-3xl pointer-events-none -z-10" />
-
-      {/* Liquid Glass Top Header */}
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 flex flex-col font-sans transition-colors relative selection:bg-indigo-500/20 overflow-x-hidden">
+      {/* Header */}
       <Header
         onOpenNewInvoice={() => handleOpenNewInvoice()}
         onOpenNewPayment={() => handleOpenNewPayment()}
+        onOpenSettings={() => setSettingsModalOpen(true)}
         currentViewTitle={getViewTitle()}
       />
 
@@ -285,11 +280,13 @@ function AppContent() {
         </AnimatePresence>
       </main>
 
-      {/* Bottom Floating Nav with NO Text */}
+      {/* Bottom Floating Nav */}
       <FloatingNav
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onOpenSettings={() => setSettingsModalOpen(true)}
+        onToggleAgent={() => setAgentDrawerOpen(prev => !prev)}
+        isAgentOpen={agentDrawerOpen}
       />
 
       {/* Modals & Dialogs */}
@@ -367,12 +364,6 @@ function AppContent() {
         payment={printPayment}
         customer={printCustomer}
         order={printOrder}
-      />
-
-      {/* Autonomous NexTone AI Copilot */}
-      <AgentTrigger
-        onClick={() => setAgentDrawerOpen(true)}
-        isOpen={agentDrawerOpen}
       />
 
       <AgentDrawer

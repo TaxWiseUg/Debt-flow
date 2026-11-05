@@ -148,22 +148,22 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       </div>
 
       {/* Aggregate Metric Banner for the View */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-6 rounded-2xl liquid-glass text-xs">
-        <div>
-          <span className="text-slate-500 dark:text-slate-400 font-medium">Filtered Total Billed:</span>
-          <p className="font-mono text-lg font-bold text-slate-900 dark:text-white mt-1">
+      <div className="flex flex-row items-center p-4 sm:p-5 rounded-2xl liquid-glass text-xs divide-x divide-slate-200 dark:divide-slate-800">
+        <div className="flex-1 min-w-0 pr-3 sm:pr-5">
+          <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium block truncate">Filtered Total Billed</span>
+          <p className="font-mono text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-0.5 truncate">
             {formatCurrency(filteredTotals.totalBilled, activeCurrency)}
           </p>
         </div>
-        <div>
-          <span className="text-slate-500 dark:text-slate-400 font-medium">Total Collected:</span>
-          <p className="font-mono text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+        <div className="flex-1 min-w-0 px-3 sm:px-5">
+          <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium block truncate">Total Collected</span>
+          <p className="font-mono text-sm sm:text-base font-bold text-emerald-600 dark:text-emerald-400 mt-0.5 truncate">
             {formatCurrency(filteredTotals.totalPaid, activeCurrency)}
           </p>
         </div>
-        <div>
-          <span className="text-slate-500 dark:text-slate-400 font-medium">Total Outstanding Debt:</span>
-          <p className="font-mono text-lg font-bold text-rose-600 dark:text-rose-400 mt-1">
+        <div className="flex-1 min-w-0 pl-3 sm:pl-5">
+          <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium block truncate">Total Outstanding Debt</span>
+          <p className="font-mono text-sm sm:text-base font-bold text-rose-600 dark:text-rose-400 mt-0.5 truncate">
             {formatCurrency(filteredTotals.totalBalance, activeCurrency)}
           </p>
         </div>

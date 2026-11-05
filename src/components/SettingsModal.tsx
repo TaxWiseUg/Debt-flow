@@ -16,6 +16,8 @@ import {
   Save,
   CheckCircle,
   Trash2,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -36,6 +38,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     exportDataJson,
     importDataJson,
     clearAllData,
+    theme,
+    toggleTheme,
   } = useLedger();
 
   const [formData, setFormData] = useState({ ...businessProfile });
@@ -65,7 +69,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `NexTone_Backup_${new Date().toISOString().split('T')[0]}.json`;
+    link.download = `Backup_${new Date().toISOString().split('T')[0]}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -102,10 +106,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white leading-tight">
-                Business Settings & Account Configuration
+                Business Settings & Preferences
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Setup your invoice letterhead, payment channels, and data backups
+                Configure your company letterhead, theme, payment channels, and backups
               </p>
             </div>
           </div>
@@ -119,9 +123,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Form Body - Scrollable */}
         <div className="p-6 space-y-6 overflow-y-auto grow">
+          {/* 1. Interface Theme Switcher */}
+          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                Interface Appearance
+              </span>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Choose between clean light mode or comfortable dark theme
+              </p>
+            </div>
+            <div className="inline-flex p-1 rounded-xl bg-slate-200/80 dark:bg-slate-800 border border-slate-300/60 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => {
+                  if (theme === 'dark') toggleTheme();
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  theme === 'light'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Sun className="w-3.5 h-3.5 text-amber-500" />
+                <span>Light</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (theme === 'light') toggleTheme();
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  theme === 'dark'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Moon className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Dark</span>
+              </button>
+            </div>
+          </div>
+
           <form onSubmit={handleSaveProfile} className="space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              1. Business Information (Printed on Invoices & Receipts)
+              2. Business Information (Printed on Invoices & Receipts)
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -146,7 +192,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="text"
                   value={formData.tagline}
                   onChange={(e) => setFormData({ ...formData, tagline: e.target.value })}
-                  placeholder="e.g. Wholesale Hardware & Electricals"
+                  placeholder="e.g. Printing & Branding Solutions"
                   className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -161,7 +207,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="text"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  placeholder="+256 772 000 000"
+                  placeholder="+256 700 000 000"
                   className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -174,7 +220,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="accounts@business.com"
+                  placeholder="orders@business.com"
                   className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -202,43 +248,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="text"
                   value={formData.taxNumber || ''}
                   onChange={(e) => setFormData({ ...formData, taxNumber: e.target.value })}
-                  placeholder="TIN: 1004829104"
-                  className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="e.g. 1000234567"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
             </div>
 
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 pt-3">
-              2. Official Payment Channels (Appears on Invoices)
+            {/* Save Profile Button */}
+            <div className="pt-2 flex items-center justify-between">
+              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
+                {saveSuccess && '✓ Business profile saved successfully!'}
+              </span>
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
+              >
+                <Save className="w-4 h-4" />
+                <span>Save Profile Changes</span>
+              </button>
+            </div>
+          </form>
+
+          {/* Bank & MoMo Details */}
+          <div className="pt-6 border-t border-slate-200 dark:border-slate-800 space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              3. Payment Channels (Printed on Invoices)
             </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Mobile Money Merchant / MoMo Pay
-                </label>
-                <input
-                  type="text"
-                  value={formData.mobileMoneyMerchant || ''}
-                  onChange={(e) => setFormData({ ...formData, mobileMoneyMerchant: e.target.value })}
-                  placeholder="Merchant Code: 894120"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Mobile Money Phone Number
-                </label>
-                <input
-                  type="text"
-                  value={formData.mobileMoneyNumber || ''}
-                  onChange={(e) => setFormData({ ...formData, mobileMoneyNumber: e.target.value })}
-                  placeholder="+256 772 100 200"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -249,7 +284,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="text"
                   value={formData.bankName || ''}
                   onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
-                  placeholder="Stanbic Bank Uganda"
+                  placeholder="e.g. Stanbic Bank Uganda"
                   className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -262,41 +297,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="text"
                   value={formData.bankAccount || ''}
                   onChange={(e) => setFormData({ ...formData, bankAccount: e.target.value })}
-                  placeholder="9030018492041"
-                  className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="e.g. 9030012345678"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-2">
-              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                {saveSuccess ? 'Business settings saved successfully!' : ''}
-              </span>
-              <button
-                type="submit"
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>Save Profile Settings</span>
-              </button>
-            </div>
-          </form>
-
-          {/* PWA App Install Section */}
-          <div className="pt-6 border-t border-slate-200 dark:border-slate-800 space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              3. Progressive Web App (PWA) Install
-            </h3>
-            <div className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/50 dark:bg-indigo-950/20 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <span className="text-xs font-bold text-slate-900 dark:text-white block">
-                  Install LedgerFlow on Device
-                </span>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Add LedgerFlow to your home screen or desktop for full offline capability and native app experience.
-                </p>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Mobile Money Merchant Name
+                </label>
+                <input
+                  type="text"
+                  value={formData.mobileMoneyMerchant || ''}
+                  onChange={(e) => setFormData({ ...formData, mobileMoneyMerchant: e.target.value })}
+                  placeholder="e.g. MTN MoMo Merchant / Airtel Pay"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
               </div>
-              <PWAInstallButton variant="full" />
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Merchant Code / Phone Number
+                </label>
+                <input
+                  type="text"
+                  value={formData.mobileMoneyNumber || ''}
+                  onChange={(e) => setFormData({ ...formData, mobileMoneyNumber: e.target.value })}
+                  placeholder="e.g. 123456 or +256 772 000000"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
             </div>
           </div>
 
@@ -329,7 +361,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Restore from JSON Backup
                 </span>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Import a previously exported LedgerFlow backup file to restore records.
+                  Import a previously exported backup file to restore records.
                 </p>
                 <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-lg transition-colors cursor-pointer">
                   <Upload className="w-3.5 h-3.5" />

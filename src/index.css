@@ -1,88 +1,93 @@
 @import "tailwindcss";
 
+/* ── Design tokens ────────────────────────────────────────────────────────── */
+:root {
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.07), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+  --shadow-modal: 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -2px rgb(0 0 0 / 0.08);
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
 @layer base {
   body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-  
+
   .font-mono {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
   }
 }
 
-/* Liquid Glass Surface System */
+/* ── Card surface (replaces liquid-glass) ─────────────────────────────────── */
+.card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+.dark .card {
+  background: #111827;
+  border-color: #1f2937;
+}
+
+/* Keep .liquid-glass and .liquid-glass-subtle as aliases so existing JSX doesn't break */
 .liquid-glass {
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.04), inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
 }
 
 .dark .liquid-glass {
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 12px 36px -5px rgba(0, 0, 0, 0.4), inset 0 1px 1px 0 rgba(255, 255, 255, 0.08);
+  background: #111827;
+  border-color: #1f2937;
+  box-shadow: var(--shadow-card);
 }
 
 .liquid-glass-subtle {
-  background: rgba(255, 255, 255, 0.5);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: var(--radius-sm);
 }
 
 .dark .liquid-glass-subtle {
-  background: rgba(30, 41, 59, 0.45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #1f2937;
+  border-color: #374151;
 }
 
 .liquid-glass-input {
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(203, 213, 225, 0.6);
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: var(--radius-sm);
 }
 
 .dark .liquid-glass-input {
-  background: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #1f2937;
+  border-color: #374151;
 }
 
-/* Custom scrollbars */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
+/* ── Scrollbars ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+.dark ::-webkit-scrollbar-thumb { background: #374151; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+/* ── Hide scrollbar (keeps scroll, removes bar) ───────────────────────────── */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.25);
-  border-radius: 9999px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.45);
-}
-
-/* Print Styles for Invoices, Receipts, Quotations & Statements */
+/* ── Print styles ─────────────────────────────────────────────────────────── */
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 8mm;
-  }
+  @page { size: A4 portrait; margin: 8mm; }
 
-  nav, aside, header, .no-print, button:not(.print-include) {
-    display: none !important;
-  }
+  nav, aside, header, .no-print, button:not(.print-include) { display: none !important; }
 
   html, body {
     background-color: #ffffff !important;
@@ -92,10 +97,7 @@
     padding: 0 !important;
   }
 
-  #root {
-    padding: 0 !important;
-    margin: 0 !important;
-  }
+  #root { padding: 0 !important; margin: 0 !important; }
 
   .print-modal-container {
     position: static !important;
@@ -129,86 +131,35 @@
     print-color-adjust: exact !important;
   }
 
-  .print-shadow-none {
-    box-shadow: none !important;
-  }
-
-  .print-force-flex {
-    display: flex !important;
-  }
-
-  .print-force-grid {
-    display: grid !important;
-  }
-
-  .print-force-block {
-    display: block !important;
-  }
-
-  .print-force-hidden {
-    display: none !important;
-  }
+  .print-shadow-none { box-shadow: none !important; }
+  .print-force-flex { display: flex !important; }
+  .print-force-grid { display: grid !important; }
+  .print-force-block { display: block !important; }
+  .print-force-hidden { display: none !important; }
 }
 
-/* Smooth Slide-In and Entrance Animations */
+/* ── Animations (kept, timing is already within 150-250ms guideline) ─────── */
 @keyframes slideUpSmooth {
-  0% {
-    transform: translateY(100%);
-    opacity: 0.8;
-  }
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
+  from { transform: translateY(100%); opacity: 0.8; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
 @keyframes slideInFromRight {
-  0% {
-    transform: translateX(100%);
-    opacity: 0.8;
-  }
-  100% {
-    transform: translateX(0);
-    opacity: 1;
-  }
+  from { transform: translateX(100%); opacity: 0.8; }
+  to { transform: translateX(0); opacity: 1; }
 }
 
 @keyframes modalZoomFade {
-  0% {
-    transform: scale(0.96) translateY(8px);
-    opacity: 0;
-  }
-  100% {
-    transform: scale(1) translateY(0);
-    opacity: 1;
-  }
+  from { transform: scale(0.97) translateY(6px); opacity: 0; }
+  to { transform: scale(1) translateY(0); opacity: 1; }
 }
 
 @keyframes fadeInFast {
-  0% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.animate-slide-up {
-  animation: slideUpSmooth 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: transform, opacity;
-}
-
-.animate-slide-right {
-  animation: slideInFromRight 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: transform, opacity;
-}
-
-.animate-modal-pop {
-  animation: modalZoomFade 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: transform, opacity;
-}
-
-.animate-fade-in {
-  animation: fadeInFast 0.18s ease-out forwards;
-}
-
+.animate-slide-up { animation: slideUpSmooth 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-slide-right { animation: slideInFromRight 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-modal-pop { animation: modalZoomFade 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-fade-in { animation: fadeInFast 0.15s ease-out forwards; }

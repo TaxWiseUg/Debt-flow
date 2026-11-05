@@ -3,8 +3,10 @@ import {
   collection,
   doc,
   setDoc,
+  getDoc,
   deleteDoc,
   onSnapshot,
+  runTransaction,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { sanitizeForFirestore } from '../utils/sanitize';
@@ -46,39 +48,38 @@ interface LedgerContextType {
   theme: 'light' | 'dark';
   cloudStatus: 'connected' | 'syncing' | 'offline';
 
-  
   // Theme & Currency
   toggleTheme: () => void;
   setActiveCurrency: (currency: CurrencyCode) => void;
   updateBusinessProfile: (updates: Partial<BusinessProfile>) => Promise<void>;
-  
+
   // Customer Actions
   addCustomer: (data: Omit<Customer, 'id' | 'createdAt'>) => Promise<Customer>;
   updateCustomer: (id: string, updates: Partial<Customer>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
   getCustomerBalance: (customerId: string) => { totalBilled: number; totalPaid: number; balanceDue: number };
   getCustomerLedger: (customerId: string) => CustomerLedgerEntry[];
-  
+
   // Product Actions
   addProduct: (data: Omit<Product, 'id' | 'createdAt'>) => Promise<Product>;
   updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
-  
+
   // Invoice Actions
   addInvoice: (data: Omit<Invoice, 'id' | 'createdAt' | 'paidAmount' | 'balanceDue' | 'status'>) => Promise<Invoice>;
   updateInvoice: (id: string, updates: Partial<Invoice>) => Promise<void>;
   deleteInvoice: (id: string) => Promise<void>;
-  
+
   // Payment Actions
   addPayment: (data: Omit<Payment, 'id' | 'createdAt' | 'receiptNumber'>) => Promise<Payment>;
   deletePayment: (id: string) => Promise<void>;
-  
+
   // Order Actions
   addOrder: (data: Omit<ClientOrder, 'id' | 'createdAt'>) => Promise<ClientOrder>;
   updateOrder: (id: string, updates: Partial<ClientOrder>) => Promise<void>;
   deleteOrder: (id: string) => Promise<void>;
   convertOrderToInvoice: (orderId: string, customDueDate?: string) => Promise<Invoice | null>;
-  
+
   // Metrics & Summaries
   debtAging: DebtAgingSummary;
   profitSummary: BusinessProfitSummary;
@@ -90,7 +91,7 @@ interface LedgerContextType {
     overdueInvoicesCount: number;
     activeCustomersCount: number;
   };
-  
+
   // Data Portability
   clearAllData: () => Promise<void>;
   exportDataJson: () => string;
@@ -100,18 +101,74 @@ interface LedgerContextType {
 const LedgerContext = createContext<LedgerContextType | undefined>(undefined);
 
 const STORAGE_KEYS = {
-  CUSTOMERS: 'ledgerflow_clean_customers_v2',
-  PRODUCTS: 'ledgerflow_clean_products_v2',
-  INVOICES: 'ledgerflow_clean_invoices_v2',
-  PAYMENTS: 'ledgerflow_clean_payments_v2',
-  ORDERS: 'nextone_clean_orders_v2',
-  PROFILE: 'nextone_clean_profile_v2',
-  CURRENCY: 'ledgerflow_currency_v2',
-  THEME: 'ledgerflow_theme_v2',
+  CUSTOMERS: 'ledgerflow_customers_v3',
+  PRODUCTS: 'ledgerflow_products_v3',
+  INVOICES: 'ledgerflow_invoices_v3',
+  PAYMENTS: 'ledgerflow_payments_v3',
+  ORDERS: 'ledgerflow_orders_v3',
+  PROFILE: 'ledgerflow_profile_v3',
+  CURRENCY: 'ledgerflow_currency_v3',
+  THEME: 'ledgerflow_theme_v3',
 };
 
+// ── One-time migration helpers ─────────────────────────────────────────────
+
+/**
+ * Migrates old localStorage keys (v1/v2) to the current v3 keys.
+ * Safe to call repeatedly — skips if the new key already has data.
+ */
+function migrateLocalStorage() {
+  const keyMap: Record<string, string> = {
+    ledgerflow_clean_customers_v2: STORAGE_KEYS.CUSTOMERS,
+    ledgerflow_clean_products_v2: STORAGE_KEYS.PRODUCTS,
+    ledgerflow_clean_invoices_v2: STORAGE_KEYS.INVOICES,
+    ledgerflow_clean_payments_v2: STORAGE_KEYS.PAYMENTS,
+    nextone_clean_orders_v2: STORAGE_KEYS.ORDERS,
+    nextone_clean_profile_v2: STORAGE_KEYS.PROFILE,
+    ledgerflow_clean_profile_v2: STORAGE_KEYS.PROFILE,
+  };
+  for (const [oldKey, newKey] of Object.entries(keyMap)) {
+    if (!localStorage.getItem(newKey) && localStorage.getItem(oldKey)) {
+      localStorage.setItem(newKey, localStorage.getItem(oldKey)!);
+    }
+  }
+}
+
+/**
+ * Migrates orders from the old single-document format (settings/orders_store)
+ * into the proper `orders` collection. Runs once, then marks done in localStorage.
+ */
+async function migrateOrdersFromSingleDoc() {
+  const FLAG = 'ledgerflow_orders_migrated_v3';
+  if (localStorage.getItem(FLAG)) return;
+
+  try {
+    const oldRef = doc(db, 'settings', 'orders_store');
+    const snap = await getDoc(oldRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      const list: ClientOrder[] = Array.isArray(data.list) ? data.list : [];
+      if (list.length > 0) {
+        await Promise.all(
+          list.map(order =>
+            setDoc(doc(db, 'orders', order.id), sanitizeForFirestore(order))
+          )
+        );
+        console.info(`[migration] Moved ${list.length} orders from settings/orders_store → orders collection.`);
+      }
+    }
+    localStorage.setItem(FLAG, '1');
+  } catch (err) {
+    console.warn('[migration] orders migration skipped (offline or already done):', err);
+  }
+}
+
 export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Theme state
+  // Run migrations once on mount
+  useMemo(() => { migrateLocalStorage(); }, []);
+  useEffect(() => { migrateOrdersFromSingleDoc(); }, []);
+
+  // ── Theme ──────────────────────────────────────────────────────────────────
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.THEME);
     if (saved === 'dark' || saved === 'light') return saved;
@@ -120,287 +177,123 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.THEME, theme);
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
-  const toggleTheme = () => {
-    setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
-  };
+  const toggleTheme = () => setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
 
-  // Cloud Status
+  // ── Cloud status ───────────────────────────────────────────────────────────
   const [cloudStatus, setCloudStatus] = useState<'connected' | 'syncing' | 'offline'>('syncing');
 
-  // Business Profile
+  // ── Business Profile ───────────────────────────────────────────────────────
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PROFILE) || localStorage.getItem('ledgerflow_clean_profile_v2');
+    const saved = localStorage.getItem(STORAGE_KEYS.PROFILE);
     if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (
-          !parsed.name ||
-          parsed.name.toUpperCase().includes('LEDGER') ||
-          parsed.name === 'PrimePrint Solutions Ltd' ||
-          parsed.name.toLowerCase() === 'next one' ||
-          parsed.name.toLowerCase() === 'nextone'
-        ) {
-          parsed.name = 'NexTone';
-          parsed.tagline = 'Printing, Branding & Custom Media Solutions';
-          parsed.email = 'orders@nextone.ug';
-          localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(parsed));
-        } else if (parsed.name === 'nextone' || parsed.name === 'NEXTONE') {
-          parsed.name = 'NexTone';
-          localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(parsed));
-        }
-        return parsed;
-      } catch { /* ignore */ }
+      try { return JSON.parse(saved); } catch { /* ignore */ }
     }
     return INITIAL_BUSINESS_PROFILE;
   });
 
-  // Active Currency (UGX alone)
+  // ── Currency (UGX only for now) ────────────────────────────────────────────
   const activeCurrency: CurrencyCode = 'UGX';
-  const setActiveCurrency = () => {};
+  const setActiveCurrency = (_currency: CurrencyCode) => {};
 
-  // State collections (start empty and pure)
+  // ── Collections ───────────────────────────────────────────────────────────
   const [customers, setCustomers] = useState<Customer[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CUSTOMERS);
-    if (saved) {
-      try { return JSON.parse(saved); } catch { /* ignore */ }
-    }
-    return INITIAL_CUSTOMERS;
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.CUSTOMERS) || '[]'); } catch { return INITIAL_CUSTOMERS; }
   });
-
   const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-    if (saved) {
-      try { return JSON.parse(saved); } catch { /* ignore */ }
-    }
-    return INITIAL_PRODUCTS;
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.PRODUCTS) || '[]'); } catch { return INITIAL_PRODUCTS; }
   });
-
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.INVOICES);
-    if (saved) {
-      try { return JSON.parse(saved); } catch { /* ignore */ }
-    }
-    return INITIAL_INVOICES;
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.INVOICES) || '[]'); } catch { return INITIAL_INVOICES; }
   });
-
   const [payments, setPayments] = useState<Payment[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PAYMENTS);
-    if (saved) {
-      try { return JSON.parse(saved); } catch { /* ignore */ }
-    }
-    return INITIAL_PAYMENTS;
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.PAYMENTS) || '[]'); } catch { return INITIAL_PAYMENTS; }
   });
-
   const [orders, setOrders] = useState<ClientOrder[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.ORDERS);
-    if (saved) {
-      try { return JSON.parse(saved); } catch { /* ignore */ }
-    }
-    return INITIAL_ORDERS || [];
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.ORDERS) || '[]'); } catch { return INITIAL_ORDERS || []; }
   });
 
-  // Local storage caching
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers));
-  }, [customers]);
+  // ── Local storage mirrors ──────────────────────────────────────────────────
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers)); }, [customers]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products)); }, [products]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(invoices)); }, [invoices]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.PAYMENTS, JSON.stringify(payments)); }, [payments]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders)); }, [orders]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(businessProfile)); }, [businessProfile]);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
-  }, [products]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(invoices));
-  }, [invoices]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PAYMENTS, JSON.stringify(payments));
-  }, [payments]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
-  }, [orders]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(businessProfile));
-  }, [businessProfile]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CURRENCY, activeCurrency);
-  }, [activeCurrency]);
-
-  // Firestore Real-Time Subscriptions
+  // ── Firestore Real-Time Subscriptions ─────────────────────────────────────
   useEffect(() => {
     setCloudStatus('syncing');
 
-    // 1. Customers subscription
     const unsubCustomers = onSnapshot(
       collection(db, 'customers'),
       (snapshot) => {
-        const cloudCustomers: Customer[] = [];
-        snapshot.forEach((docSnap) => {
-          cloudCustomers.push(docSnap.data() as Customer);
-        });
-        // Sort descending by createdAt
-        cloudCustomers.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        setCustomers(cloudCustomers);
+        const data: Customer[] = snapshot.docs.map(d => d.data() as Customer);
+        data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setCustomers(data);
         setCloudStatus('connected');
       },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'customers');
-        setCloudStatus('offline');
-      }
+      (error) => { handleFirestoreError(error, OperationType.LIST, 'customers'); setCloudStatus('offline'); }
     );
 
-    // 2. Products subscription
     const unsubProducts = onSnapshot(
       collection(db, 'products'),
       (snapshot) => {
-        const cloudProducts: Product[] = [];
-        snapshot.forEach((docSnap) => {
-          cloudProducts.push(docSnap.data() as Product);
-        });
-        const BRIEF_NAMES_MAP: Record<string, string> = {
-          'Roll-up Banner (85x200cm)': 'Roll-up Banner',
-          'Branded Cotton T-Shirt (DTF Print)': 'Branded T-Shirt',
-          'Shirt (DTF Print)': 'Branded T-Shirt',
-          'Business Cards (350gsm Matte/Gloss)': 'Business Cards',
-          'Custom Die-Cut Vinyl Stickers': 'Vinyl Stickers',
-          'Teardrop Feather Flag (3m)': 'Teardrop Flag',
-          'Branded Ceramic Coffee Mug': 'Branded Mug',
-          'A5/A4 Flyers / Brochures (100pcs)': 'Flyers & Brochures',
-          'Custom Woven Lanyards with ID Holder': 'Branded Lanyards',
-        };
-
-        if (cloudProducts.length === 0 && INITIAL_PRODUCTS.length > 0) {
-          setProducts(INITIAL_PRODUCTS);
-          // Seed to Firestore in background
-          INITIAL_PRODUCTS.forEach(p => {
-            setDoc(doc(db, 'products', p.id), sanitizeForFirestore(p)).catch(() => {});
-          });
-        } else {
-          // Normalize any existing products with overly long names to concise brief names
-          const normalized = cloudProducts.map(p => {
-            if (BRIEF_NAMES_MAP[p.name]) {
-              const updatedProduct = { ...p, name: BRIEF_NAMES_MAP[p.name] };
-              // Sync updated name to Firestore
-              setDoc(doc(db, 'products', p.id), sanitizeForFirestore(updatedProduct)).catch(() => {});
-              return updatedProduct;
-            }
-            return p;
-          });
-          normalized.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          setProducts(normalized);
-        }
+        const data: Product[] = snapshot.docs.map(d => d.data() as Product);
+        data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setProducts(data);
         setCloudStatus('connected');
       },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'products');
-        setCloudStatus('offline');
-      }
+      (error) => { handleFirestoreError(error, OperationType.LIST, 'products'); setCloudStatus('offline'); }
     );
 
-    // 3. Invoices subscription
     const unsubInvoices = onSnapshot(
       collection(db, 'invoices'),
       (snapshot) => {
-        const cloudInvoices: Invoice[] = [];
-        snapshot.forEach((docSnap) => {
-          cloudInvoices.push(docSnap.data() as Invoice);
-        });
-        cloudInvoices.sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
-        setInvoices(cloudInvoices);
+        const data: Invoice[] = snapshot.docs.map(d => d.data() as Invoice);
+        data.sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
+        setInvoices(data);
         setCloudStatus('connected');
       },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'invoices');
-        setCloudStatus('offline');
-      }
+      (error) => { handleFirestoreError(error, OperationType.LIST, 'invoices'); setCloudStatus('offline'); }
     );
 
-    // 4. Payments subscription
     const unsubPayments = onSnapshot(
       collection(db, 'payments'),
       (snapshot) => {
-        const cloudPayments: Payment[] = [];
-        snapshot.forEach((docSnap) => {
-          cloudPayments.push(docSnap.data() as Payment);
-        });
-        cloudPayments.sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
-        setPayments(cloudPayments);
+        const data: Payment[] = snapshot.docs.map(d => d.data() as Payment);
+        data.sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
+        setPayments(data);
         setCloudStatus('connected');
       },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'payments');
-        setCloudStatus('offline');
-      }
+      (error) => { handleFirestoreError(error, OperationType.LIST, 'payments'); setCloudStatus('offline'); }
     );
 
-    // 5. Settings profile subscription
+    // Orders — now a proper collection (was a single document)
+    const unsubOrders = onSnapshot(
+      collection(db, 'orders'),
+      (snapshot) => {
+        const data: ClientOrder[] = snapshot.docs.map(d => d.data() as ClientOrder);
+        data.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime());
+        setOrders(data);
+        setCloudStatus('connected');
+      },
+      (error) => { handleFirestoreError(error, OperationType.LIST, 'orders'); setCloudStatus('offline'); }
+    );
+
     const unsubSettings = onSnapshot(
       doc(db, 'settings', 'profile'),
       (docSnap) => {
         if (docSnap.exists()) {
           const cloudProfile = docSnap.data() as BusinessProfile;
-          if (
-            !cloudProfile.name ||
-            cloudProfile.name.toUpperCase().includes('LEDGER') ||
-            cloudProfile.name === 'PrimePrint Solutions Ltd' ||
-            cloudProfile.name.toLowerCase() === 'next one' ||
-            cloudProfile.name.toLowerCase() === 'nextone'
-          ) {
-            cloudProfile.name = 'NexTone';
-            cloudProfile.tagline = 'Printing, Branding & Custom Media Solutions';
-            cloudProfile.email = 'orders@nextone.ug';
-            setDoc(doc(db, 'settings', 'profile'), sanitizeForFirestore(cloudProfile)).catch(() => {});
-            localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(cloudProfile));
-          } else if (cloudProfile.name === 'nextone' || cloudProfile.name === 'NEXTONE') {
-            cloudProfile.name = 'NexTone';
-            setDoc(doc(db, 'settings', 'profile'), sanitizeForFirestore(cloudProfile)).catch(() => {});
-            localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(cloudProfile));
-          }
           setBusinessProfile(cloudProfile);
-          if (cloudProfile.defaultCurrency) {
-            // Currency is fixed to UGX
-          }
+          localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(cloudProfile));
         }
         setCloudStatus('connected');
       },
-      (error) => {
-        handleFirestoreError(error, OperationType.GET, 'settings/profile');
-      }
-    );
-
-    // 6. Orders subscription (synced in Firestore under settings/orders_store)
-    const unsubOrders = onSnapshot(
-      doc(db, 'settings', 'orders_store'),
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          const cloudOrders: ClientOrder[] = (data.list as ClientOrder[]) || [];
-          cloudOrders.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime());
-          setOrders(cloudOrders);
-        } else {
-          // Initialize remote store if not yet created
-          const seed = INITIAL_ORDERS && INITIAL_ORDERS.length > 0 ? INITIAL_ORDERS : [];
-          setOrders(seed);
-          setDoc(doc(db, 'settings', 'orders_store'), {
-            list: sanitizeForFirestore(seed),
-            updatedAt: new Date().toISOString(),
-          }).catch(() => {});
-        }
-        setCloudStatus('connected');
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.GET, 'settings/orders_store');
-        setCloudStatus('offline');
-      }
+      (error) => { handleFirestoreError(error, OperationType.GET, 'settings/profile'); }
     );
 
     return () => {
@@ -408,12 +301,12 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       unsubProducts();
       unsubInvoices();
       unsubPayments();
-      unsubSettings();
       unsubOrders();
+      unsubSettings();
     };
   }, []);
 
-  // Recalculate invoice statuses based on balance & due dates
+  // ── Derived: invoices with refreshed status ────────────────────────────────
   const refreshedInvoices = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
     return invoices.map(inv => {
@@ -426,32 +319,20 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       } else {
         status = inv.dueDate < today ? 'overdue' : 'issued';
       }
-      return {
-        ...inv,
-        balanceDue,
-        status,
-      };
+      return { ...inv, balanceDue, status };
     });
   }, [invoices]);
 
-  // Customer Actions (Sync to Firestore + Local)
+  // ── Customer CRUD ──────────────────────────────────────────────────────────
   const addCustomer = async (data: Omit<Customer, 'id' | 'createdAt'>): Promise<Customer> => {
     const id = `cust_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const newCustomer: Customer = {
-      ...data,
-      id,
-      createdAt: new Date().toISOString(),
-    };
-    
-    // Optimistic local update
+    const newCustomer: Customer = { ...data, id, createdAt: new Date().toISOString() };
     setCustomers(prev => [newCustomer, ...prev]);
-
     try {
       await setDoc(doc(db, 'customers', id), sanitizeForFirestore(newCustomer));
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `customers/${id}`);
     }
-
     return newCustomer;
   };
 
@@ -459,9 +340,7 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const existing = customers.find(c => c.id === id);
     if (!existing) return;
     const merged = { ...existing, ...updates };
-
     setCustomers(prev => prev.map(c => (c.id === id ? merged : c)));
-
     try {
       await setDoc(doc(db, 'customers', id), sanitizeForFirestore(merged));
     } catch (error) {
@@ -478,23 +357,16 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  // Product Actions
+  // ── Product CRUD ───────────────────────────────────────────────────────────
   const addProduct = async (data: Omit<Product, 'id' | 'createdAt'>): Promise<Product> => {
     const id = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const newProduct: Product = {
-      ...data,
-      id,
-      createdAt: new Date().toISOString(),
-    };
-
+    const newProduct: Product = { ...data, id, createdAt: new Date().toISOString() };
     setProducts(prev => [newProduct, ...prev]);
-
     try {
       await setDoc(doc(db, 'products', id), sanitizeForFirestore(newProduct));
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `products/${id}`);
     }
-
     return newProduct;
   };
 
@@ -502,9 +374,7 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const existing = products.find(p => p.id === id);
     if (!existing) return;
     const merged = { ...existing, ...updates, updatedAt: new Date().toISOString() };
-
     setProducts(prev => prev.map(p => (p.id === id ? merged : p)));
-
     try {
       await setDoc(doc(db, 'products', id), sanitizeForFirestore(merged));
     } catch (error) {
@@ -521,30 +391,27 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  // Invoice Actions
-  const addInvoice = async (data: Omit<Invoice, 'id' | 'createdAt' | 'paidAmount' | 'balanceDue' | 'status'>): Promise<Invoice> => {
+  // ── Invoice CRUD ───────────────────────────────────────────────────────────
+  const addInvoice = async (
+    data: Omit<Invoice, 'id' | 'createdAt' | 'paidAmount' | 'balanceDue' | 'status'>
+  ): Promise<Invoice> => {
     const id = `inv_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const totalAmount = data.totalAmount;
     const today = new Date().toISOString().split('T')[0];
     const status = data.dueDate < today ? 'overdue' : 'issued';
-
     const newInvoice: Invoice = {
       ...data,
       id,
       paidAmount: 0,
-      balanceDue: totalAmount,
+      balanceDue: data.totalAmount,
       status,
       createdAt: new Date().toISOString(),
     };
-
     setInvoices(prev => [newInvoice, ...prev]);
-
     try {
       await setDoc(doc(db, 'invoices', id), sanitizeForFirestore(newInvoice));
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `invoices/${id}`);
     }
-
     return newInvoice;
   };
 
@@ -563,9 +430,7 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       status = merged.dueDate < today ? 'overdue' : 'issued';
     }
     const finalInv = { ...merged, balanceDue, status };
-
     setInvoices(prev => prev.map(inv => (inv.id === id ? finalInv : inv)));
-
     try {
       await setDoc(doc(db, 'invoices', id), sanitizeForFirestore(finalInv));
     } catch (error) {
@@ -582,44 +447,37 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  // Payment Actions
+  // ── Payment CRUD ───────────────────────────────────────────────────────────
+  // Uses a Firestore transaction so the invoice balance update is atomic.
   const addPayment = async (data: Omit<Payment, 'id' | 'createdAt' | 'receiptNumber'>): Promise<Payment> => {
     const id = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const receiptNumber = generateReceiptNumber(payments.length);
+    const receiptNumber = generateReceiptNumber();
 
-    const newPayment: Payment = {
-      ...data,
-      id,
-      receiptNumber,
-      createdAt: new Date().toISOString(),
-    };
+    const newPayment: Payment = { ...data, id, receiptNumber, createdAt: new Date().toISOString() };
 
+    // Optimistic local update
     setPayments(prev => [newPayment, ...prev]);
 
     try {
-      await setDoc(doc(db, 'payments', id), sanitizeForFirestore(newPayment));
-
-      // If linked to an invoice, update invoice paid balance
       if (data.invoiceId) {
-        const inv = invoices.find(i => i.id === data.invoiceId);
-        if (inv) {
-          const newPaidAmount = (inv.paidAmount || 0) + data.amount;
-          const balanceDue = Math.max(0, inv.totalAmount - newPaidAmount);
-          const today = new Date().toISOString().split('T')[0];
-          let status: Invoice['status'] = 'partially_paid';
-          if (balanceDue <= 0) {
-            status = 'paid';
-          } else if (inv.dueDate < today) {
-            status = 'overdue';
+        // Atomic: write payment + update invoice balance in one transaction
+        await runTransaction(db, async (tx) => {
+          const invRef = doc(db, 'invoices', data.invoiceId!);
+          const invSnap = await tx.get(invRef);
+
+          tx.set(doc(db, 'payments', id), sanitizeForFirestore(newPayment));
+
+          if (invSnap.exists()) {
+            const inv = invSnap.data() as Invoice;
+            const newPaidAmount = (inv.paidAmount || 0) + data.amount;
+            const balanceDue = Math.max(0, inv.totalAmount - newPaidAmount);
+            const today = new Date().toISOString().split('T')[0];
+            let status: Invoice['status'] = balanceDue <= 0 ? 'paid' : inv.dueDate < today ? 'overdue' : 'partially_paid';
+            tx.set(invRef, sanitizeForFirestore({ ...inv, paidAmount: newPaidAmount, balanceDue, status }));
           }
-          const updatedInvoice = {
-            ...inv,
-            paidAmount: newPaidAmount,
-            balanceDue,
-            status,
-          };
-          await setDoc(doc(db, 'invoices', inv.id), sanitizeForFirestore(updatedInvoice));
-        }
+        });
+      } else {
+        await setDoc(doc(db, 'payments', id), sanitizeForFirestore(newPayment));
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `payments/${id}`);
@@ -631,284 +489,46 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const deletePayment = async (id: string) => {
     const payment = payments.find(p => p.id === id);
     if (!payment) return;
-
     setPayments(prev => prev.filter(p => p.id !== id));
 
     try {
-      await deleteDoc(doc(db, 'payments', id));
-
       if (payment.invoiceId) {
-        const inv = invoices.find(i => i.id === payment.invoiceId);
-        if (inv) {
-          const newPaidAmount = Math.max(0, (inv.paidAmount || 0) - payment.amount);
-          const balanceDue = Math.max(0, inv.totalAmount - newPaidAmount);
-          const today = new Date().toISOString().split('T')[0];
-          let status: Invoice['status'] = 'issued';
-          if (balanceDue <= 0 && inv.totalAmount > 0) {
-            status = 'paid';
-          } else if (newPaidAmount > 0) {
-            status = inv.dueDate < today ? 'overdue' : 'partially_paid';
-          } else {
-            status = inv.dueDate < today ? 'overdue' : 'issued';
+        await runTransaction(db, async (tx) => {
+          const invRef = doc(db, 'invoices', payment.invoiceId!);
+          const invSnap = await tx.get(invRef);
+
+          tx.delete(doc(db, 'payments', id));
+
+          if (invSnap.exists()) {
+            const inv = invSnap.data() as Invoice;
+            const newPaidAmount = Math.max(0, (inv.paidAmount || 0) - payment.amount);
+            const balanceDue = Math.max(0, inv.totalAmount - newPaidAmount);
+            const today = new Date().toISOString().split('T')[0];
+            let status: Invoice['status'] = 'issued';
+            if (balanceDue <= 0 && inv.totalAmount > 0) status = 'paid';
+            else if (newPaidAmount > 0) status = inv.dueDate < today ? 'overdue' : 'partially_paid';
+            else status = inv.dueDate < today ? 'overdue' : 'issued';
+            tx.set(invRef, sanitizeForFirestore({ ...inv, paidAmount: newPaidAmount, balanceDue, status }));
           }
-          await setDoc(doc(db, 'invoices', inv.id), sanitizeForFirestore({
-            ...inv,
-            paidAmount: newPaidAmount,
-            balanceDue,
-            status,
-          }));
-        }
+        });
+      } else {
+        await deleteDoc(doc(db, 'payments', id));
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `payments/${id}`);
     }
   };
 
-  // Balances & Ledger Calculations
-  const getCustomerBalance = (customerId: string) => {
-    const custInvoices = refreshedInvoices.filter(i => i.customerId === customerId);
-    const custPayments = payments.filter(p => p.customerId === customerId);
-
-    const totalBilled = custInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
-    const totalPaid = custPayments.reduce((sum, pay) => sum + pay.amount, 0);
-    const balanceDue = Math.max(0, totalBilled - totalPaid);
-
-    return { totalBilled, totalPaid, balanceDue };
-  };
-
-  const getCustomerLedger = (customerId: string): CustomerLedgerEntry[] => {
-    const custInvoices = refreshedInvoices.filter(i => i.customerId === customerId);
-    const custPayments = payments.filter(p => p.customerId === customerId);
-
-    const rawEvents: Array<{
-      id: string;
-      date: string;
-      type: 'invoice' | 'payment';
-      reference: string;
-      description: string;
-      debit: number;
-      credit: number;
-      currency: CurrencyCode;
-    }> = [];
-
-    custInvoices.forEach(inv => {
-      rawEvents.push({
-        id: inv.id,
-        date: inv.issueDate,
-        type: 'invoice',
-        reference: inv.invoiceNumber,
-        description: `Invoice: ${inv.items.map(it => `${it.productName} (${it.quantity} ${it.unit})`).join(', ')}`,
-        debit: inv.totalAmount,
-        credit: 0,
-        currency: inv.currency,
-      });
-    });
-
-    custPayments.forEach(pay => {
-      rawEvents.push({
-        id: pay.id,
-        date: pay.paymentDate,
-        type: 'payment',
-        reference: pay.receiptNumber,
-        description: `Payment (${pay.paymentMethod.replace('_', ' ').toUpperCase()})${pay.referenceNumber ? ` - Ref: ${pay.referenceNumber}` : ''}${pay.invoiceNumber ? ` for ${pay.invoiceNumber}` : ''}`,
-        debit: 0,
-        credit: pay.amount,
-        currency: pay.currency,
-      });
-    });
-
-    rawEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    let running = 0;
-    return rawEvents.map(event => {
-      running = running + event.debit - event.credit;
-      return {
-        ...event,
-        runningBalance: running,
-      };
-    });
-  };
-
-  // Debt Aging
-  const debtAging = useMemo<DebtAgingSummary>(() => {
-    const summary: DebtAgingSummary = {
-      current: 0,
-      days1to30: 0,
-      days31to60: 0,
-      daysOver60: 0,
-      totalOverdue: 0,
-    };
-
-    refreshedInvoices.forEach(inv => {
-      if (inv.balanceDue <= 0) return;
-      const daysOverdue = calculateDaysOverdue(inv.dueDate);
-      if (daysOverdue === 0) {
-        summary.current += inv.balanceDue;
-      } else if (daysOverdue <= 30) {
-        summary.days1to30 += inv.balanceDue;
-        summary.totalOverdue += inv.balanceDue;
-      } else if (daysOverdue <= 60) {
-        summary.days31to60 += inv.balanceDue;
-        summary.totalOverdue += inv.balanceDue;
-      } else {
-        summary.daysOver60 += inv.balanceDue;
-        summary.totalOverdue += inv.balanceDue;
-      }
-    });
-
-    return summary;
-  }, [refreshedInvoices]);
-
-  // Financial Metrics
-  const metrics = useMemo(() => {
-    const totalDebt = refreshedInvoices.reduce((sum, inv) => sum + inv.balanceDue, 0);
-    const totalBilled = refreshedInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
-
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-
-    const totalCollectedThisMonth = payments
-      .filter(p => {
-        const d = new Date(p.paymentDate);
-        return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
-      })
-      .reduce((sum, p) => sum + p.amount, 0);
-
-    const overdueInvoicesCount = refreshedInvoices.filter(i => i.status === 'overdue' && i.balanceDue > 0).length;
-
-    const activeCustomerIds = new Set([
-      ...refreshedInvoices.map(i => i.customerId),
-      ...payments.map(p => p.customerId),
-    ]);
-
-    return {
-      totalDebt,
-      totalBilled,
-      totalCollectedThisMonth,
-      overdueInvoicesCount,
-      activeCustomersCount: activeCustomerIds.size,
-    };
-  }, [refreshedInvoices, payments]);
-
-  // Helper to calculate realized profit for any invoice
-  const getInvoiceProfit = (inv: Invoice): InvoiceProfitMetrics => {
-    let totalCost = 0;
-    if (typeof inv.totalCost === 'number' && inv.totalCost > 0) {
-      totalCost = inv.totalCost;
-    } else if (Array.isArray(inv.items) && inv.items.length > 0) {
-      totalCost = inv.items.reduce((sum, item) => {
-        const qty = item.quantity > 0 ? item.quantity : 1;
-        if (typeof item.costPrice === 'number' && item.costPrice > 0) {
-          return sum + item.costPrice * qty;
-        }
-        const catalogProd = products.find(
-          p => p.id === item.productId || p.name.toLowerCase() === item.productName.toLowerCase()
-        );
-        if (catalogProd?.costPrice && catalogProd.costPrice > 0) {
-          return sum + catalogProd.costPrice * qty;
-        }
-        // Realistic fallback for print shop: 50% material & overhead production cost
-        return sum + (item.unitPrice * 0.5) * qty;
-      }, 0);
-    }
-
-    const totalBilled = inv.totalAmount || 0;
-    const paidAmount = inv.paidAmount || 0;
-    const invoicedProfit = Math.max(0, totalBilled - totalCost);
-    const paidRatio = totalBilled > 0 ? Math.min(1, Math.max(0, paidAmount / totalBilled)) : 0;
-    const realizedProfit = Math.round(invoicedProfit * paidRatio);
-    const lockedProfit = Math.max(0, invoicedProfit - realizedProfit);
-    const marginPercent = totalBilled > 0 ? Math.round((invoicedProfit / totalBilled) * 100) : 0;
-
-    return {
-      totalCost,
-      totalBilled,
-      paidAmount,
-      invoicedProfit,
-      realizedProfit,
-      lockedProfit,
-      marginPercent,
-      paidRatio,
-    };
-  };
-
-  // Business-wide Profit Analytics (Realized from Cash Collected vs Invoiced Debt)
-  const profitSummary = useMemo<BusinessProfitSummary>(() => {
-    let totalRevenueBilled = 0;
-    let totalCashCollected = 0;
-    let totalProductionCost = 0;
-    let invoicedGrossProfit = 0;
-    let realizedCashProfit = 0;
-    let lockedProfitInReceivables = 0;
-
-    refreshedInvoices.forEach(inv => {
-      const p = getInvoiceProfit(inv);
-      totalRevenueBilled += p.totalBilled;
-      totalCashCollected += p.paidAmount;
-      totalProductionCost += p.totalCost;
-      invoicedGrossProfit += p.invoicedProfit;
-      realizedCashProfit += p.realizedProfit;
-      lockedProfitInReceivables += p.lockedProfit;
-    });
-
-    const realizedMarginPercent = totalCashCollected > 0
-      ? Math.round((realizedCashProfit / totalCashCollected) * 100)
-      : (totalRevenueBilled > 0 ? Math.round((invoicedGrossProfit / totalRevenueBilled) * 100) : 0);
-
-    return {
-      totalRevenueBilled,
-      totalCashCollected,
-      totalProductionCost,
-      invoicedGrossProfit,
-      realizedCashProfit,
-      lockedProfitInReceivables,
-      realizedMarginPercent,
-    };
-  }, [refreshedInvoices, products]);
-
-  // Update business profile
-  const updateBusinessProfile = async (updates: Partial<BusinessProfile>) => {
-    const merged = { ...businessProfile, ...updates };
-    if (
-      !merged.name ||
-      merged.name.toUpperCase().includes('LEDGER') ||
-      merged.name === 'PrimePrint Solutions Ltd' ||
-      merged.name.toLowerCase() === 'next one' ||
-      merged.name.toLowerCase() === 'nextone'
-    ) {
-      merged.name = 'NexTone';
-    }
-    setBusinessProfile(merged);
-    localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(merged));
-    try {
-      await setDoc(doc(db, 'settings', 'profile'), sanitizeForFirestore(merged));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'settings/profile');
-    }
-  };
-
-  // Order Actions (stored in Firestore at settings/orders_store)
+  // ── Order CRUD — proper collection (not a single document) ─────────────────
   const addOrder = async (data: Omit<ClientOrder, 'id' | 'createdAt'>): Promise<ClientOrder> => {
     const id = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const newOrder: ClientOrder = {
-      ...data,
-      id,
-      createdAt: new Date().toISOString(),
-    };
-
-    const updated = [newOrder, ...orders];
-    setOrders(updated);
-
+    const newOrder: ClientOrder = { ...data, id, createdAt: new Date().toISOString() };
+    setOrders(prev => [newOrder, ...prev]);
     try {
-      await setDoc(doc(db, 'settings', 'orders_store'), {
-        list: sanitizeForFirestore(updated),
-        updatedAt: new Date().toISOString(),
-      });
+      await setDoc(doc(db, 'orders', id), sanitizeForFirestore(newOrder));
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'settings/orders_store');
+      handleFirestoreError(error, OperationType.CREATE, `orders/${id}`);
     }
-
     return newOrder;
   };
 
@@ -916,30 +536,20 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const existing = orders.find(o => o.id === id);
     if (!existing) return;
     const merged = { ...existing, ...updates, updatedAt: new Date().toISOString() };
-
-    const updated = orders.map(o => (o.id === id ? merged : o));
-    setOrders(updated);
-
+    setOrders(prev => prev.map(o => (o.id === id ? merged : o)));
     try {
-      await setDoc(doc(db, 'settings', 'orders_store'), {
-        list: sanitizeForFirestore(updated),
-        updatedAt: new Date().toISOString(),
-      });
+      await setDoc(doc(db, 'orders', id), sanitizeForFirestore(merged));
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'settings/orders_store');
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${id}`);
     }
   };
 
   const deleteOrder = async (id: string) => {
-    const updated = orders.filter(o => o.id !== id);
-    setOrders(updated);
+    setOrders(prev => prev.filter(o => o.id !== id));
     try {
-      await setDoc(doc(db, 'settings', 'orders_store'), {
-        list: sanitizeForFirestore(updated),
-        updatedAt: new Date().toISOString(),
-      });
+      await deleteDoc(doc(db, 'orders', id));
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'settings/orders_store');
+      handleFirestoreError(error, OperationType.DELETE, `orders/${id}`);
     }
   };
 
@@ -948,10 +558,9 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!order) return null;
 
     const dueDate = customDueDate || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
-    const invoiceNumber = `INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(4, '0')}`;
 
     const invoiceData: Omit<Invoice, 'id' | 'createdAt' | 'paidAmount' | 'balanceDue' | 'status'> = {
-      invoiceNumber,
+      invoiceNumber: `INV-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase().slice(-5)}`,
       orderId: order.id,
       orderNumber: order.orderNumber,
       customerId: order.customerId,
@@ -977,90 +586,195 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       taxAmount: order.taxAmount,
       discountAmount: order.discountAmount,
       totalAmount: order.totalAmount,
-      notes: order.notes ? `Generated from Order #${order.orderNumber}. ${order.notes}` : `Generated from Order #${order.orderNumber}`,
+      notes: order.notes
+        ? `Generated from Order #${order.orderNumber}. ${order.notes}`
+        : `Generated from Order #${order.orderNumber}`,
       paymentInstructions: businessProfile.notes,
     };
 
     const newInvoice = await addInvoice(invoiceData);
-
-    // Update order with linked invoice and mark as invoiced
     await updateOrder(orderId, {
       status: 'invoiced',
       linkedInvoiceId: newInvoice.id,
       linkedInvoiceNumber: newInvoice.invoiceNumber,
     });
-
     return newInvoice;
   };
 
-  // Clear all data (starts fresh and clean)
-  const clearAllData = async () => {
-    setCustomers([]);
-    setProducts([]);
-    setInvoices([]);
-    setPayments([]);
-    setOrders([]);
-    localStorage.removeItem(STORAGE_KEYS.CUSTOMERS);
-    localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
-    localStorage.removeItem(STORAGE_KEYS.INVOICES);
-    localStorage.removeItem(STORAGE_KEYS.PAYMENTS);
-    localStorage.removeItem(STORAGE_KEYS.ORDERS);
+  // ── Ledger calculations ────────────────────────────────────────────────────
+  const getCustomerBalance = (customerId: string) => {
+    const custInvoices = refreshedInvoices.filter(i => i.customerId === customerId);
+    const custPayments = payments.filter(p => p.customerId === customerId);
+    const totalBilled = custInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
+    const totalPaid = custPayments.reduce((sum, pay) => sum + pay.amount, 0);
+    return { totalBilled, totalPaid, balanceDue: Math.max(0, totalBilled - totalPaid) };
+  };
 
-    // Delete docs from Firestore in background
+  const getCustomerLedger = (customerId: string): CustomerLedgerEntry[] => {
+    const custInvoices = refreshedInvoices.filter(i => i.customerId === customerId);
+    const custPayments = payments.filter(p => p.customerId === customerId);
+
+    type RawEvent = {
+      id: string; date: string; type: 'invoice' | 'payment';
+      reference: string; description: string; debit: number; credit: number; currency: CurrencyCode;
+    };
+
+    const rawEvents: RawEvent[] = [
+      ...custInvoices.map(inv => ({
+        id: inv.id,
+        date: inv.issueDate,
+        type: 'invoice' as const,
+        reference: inv.invoiceNumber,
+        description: `Invoice: ${inv.items.map(it => `${it.productName} (${it.quantity} ${it.unit})`).join(', ')}`,
+        debit: inv.totalAmount,
+        credit: 0,
+        currency: inv.currency,
+      })),
+      ...custPayments.map(pay => ({
+        id: pay.id,
+        date: pay.paymentDate,
+        type: 'payment' as const,
+        reference: pay.receiptNumber,
+        description: `Payment (${pay.paymentMethod.replace('_', ' ').toUpperCase()})${pay.referenceNumber ? ` - Ref: ${pay.referenceNumber}` : ''}${pay.invoiceNumber ? ` for ${pay.invoiceNumber}` : ''}`,
+        debit: 0,
+        credit: pay.amount,
+        currency: pay.currency,
+      })),
+    ];
+
+    rawEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    let running = 0;
+    return rawEvents.map(event => {
+      running = running + event.debit - event.credit;
+      return { ...event, runningBalance: running };
+    });
+  };
+
+  // ── Debt Aging ─────────────────────────────────────────────────────────────
+  const debtAging = useMemo<DebtAgingSummary>(() => {
+    const summary: DebtAgingSummary = { current: 0, days1to30: 0, days31to60: 0, daysOver60: 0, totalOverdue: 0 };
+    refreshedInvoices.forEach(inv => {
+      if (inv.balanceDue <= 0) return;
+      const daysOverdue = calculateDaysOverdue(inv.dueDate);
+      if (daysOverdue === 0) summary.current += inv.balanceDue;
+      else if (daysOverdue <= 30) { summary.days1to30 += inv.balanceDue; summary.totalOverdue += inv.balanceDue; }
+      else if (daysOverdue <= 60) { summary.days31to60 += inv.balanceDue; summary.totalOverdue += inv.balanceDue; }
+      else { summary.daysOver60 += inv.balanceDue; summary.totalOverdue += inv.balanceDue; }
+    });
+    return summary;
+  }, [refreshedInvoices]);
+
+  // ── Financial Metrics ──────────────────────────────────────────────────────
+  const metrics = useMemo(() => {
+    const totalDebt = refreshedInvoices.reduce((sum, inv) => sum + inv.balanceDue, 0);
+    const totalBilled = refreshedInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
+    const now = new Date();
+    const totalCollectedThisMonth = payments
+      .filter(p => { const d = new Date(p.paymentDate); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); })
+      .reduce((sum, p) => sum + p.amount, 0);
+    const overdueInvoicesCount = refreshedInvoices.filter(i => i.status === 'overdue' && i.balanceDue > 0).length;
+    const activeCustomerIds = new Set([...refreshedInvoices.map(i => i.customerId), ...payments.map(p => p.customerId)]);
+    return { totalDebt, totalBilled, totalCollectedThisMonth, overdueInvoicesCount, activeCustomersCount: activeCustomerIds.size };
+  }, [refreshedInvoices, payments]);
+
+  // ── Profit analytics ───────────────────────────────────────────────────────
+  const getInvoiceProfit = (inv: Invoice): InvoiceProfitMetrics => {
+    let totalCost = 0;
+    if (typeof inv.totalCost === 'number' && inv.totalCost > 0) {
+      totalCost = inv.totalCost;
+    } else if (Array.isArray(inv.items) && inv.items.length > 0) {
+      totalCost = inv.items.reduce((sum, item) => {
+        const qty = item.quantity > 0 ? item.quantity : 1;
+        if (typeof item.costPrice === 'number' && item.costPrice > 0) return sum + item.costPrice * qty;
+        const catalogProd = products.find(p => p.id === item.productId || p.name.toLowerCase() === item.productName.toLowerCase());
+        if (catalogProd?.costPrice && catalogProd.costPrice > 0) return sum + catalogProd.costPrice * qty;
+        return sum + item.unitPrice * 0.5 * qty;
+      }, 0);
+    }
+
+    const totalBilled = inv.totalAmount || 0;
+    const paidAmount = inv.paidAmount || 0;
+    const invoicedProfit = Math.max(0, totalBilled - totalCost);
+    const paidRatio = totalBilled > 0 ? Math.min(1, Math.max(0, paidAmount / totalBilled)) : 0;
+    const realizedProfit = Math.round(invoicedProfit * paidRatio);
+    const lockedProfit = Math.max(0, invoicedProfit - realizedProfit);
+    const marginPercent = totalBilled > 0 ? Math.round((invoicedProfit / totalBilled) * 100) : 0;
+
+    return { totalCost, totalBilled, paidAmount, invoicedProfit, realizedProfit, lockedProfit, marginPercent, paidRatio };
+  };
+
+  const profitSummary = useMemo<BusinessProfitSummary>(() => {
+    let totalRevenueBilled = 0, totalCashCollected = 0, totalProductionCost = 0;
+    let invoicedGrossProfit = 0, realizedCashProfit = 0, lockedProfitInReceivables = 0;
+
+    refreshedInvoices.forEach(inv => {
+      const p = getInvoiceProfit(inv);
+      totalRevenueBilled += p.totalBilled;
+      totalCashCollected += p.paidAmount;
+      totalProductionCost += p.totalCost;
+      invoicedGrossProfit += p.invoicedProfit;
+      realizedCashProfit += p.realizedProfit;
+      lockedProfitInReceivables += p.lockedProfit;
+    });
+
+    const realizedMarginPercent = totalCashCollected > 0
+      ? Math.round((realizedCashProfit / totalCashCollected) * 100)
+      : (totalRevenueBilled > 0 ? Math.round((invoicedGrossProfit / totalRevenueBilled) * 100) : 0);
+
+    return { totalRevenueBilled, totalCashCollected, totalProductionCost, invoicedGrossProfit, realizedCashProfit, lockedProfitInReceivables, realizedMarginPercent };
+  }, [refreshedInvoices, products]);
+
+  // ── Business profile ───────────────────────────────────────────────────────
+  const updateBusinessProfile = async (updates: Partial<BusinessProfile>) => {
+    const merged = { ...businessProfile, ...updates };
+    setBusinessProfile(merged);
+    localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(merged));
+    try {
+      await setDoc(doc(db, 'settings', 'profile'), sanitizeForFirestore(merged));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'settings/profile');
+    }
+  };
+
+  // ── Data portability ───────────────────────────────────────────────────────
+  const clearAllData = async () => {
+    setCustomers([]); setProducts([]); setInvoices([]); setPayments([]); setOrders([]);
+    Object.values(STORAGE_KEYS).forEach(k => localStorage.removeItem(k));
     customers.forEach(c => deleteDoc(doc(db, 'customers', c.id)).catch(() => {}));
     products.forEach(p => deleteDoc(doc(db, 'products', p.id)).catch(() => {}));
     invoices.forEach(i => deleteDoc(doc(db, 'invoices', i.id)).catch(() => {}));
     payments.forEach(p => deleteDoc(doc(db, 'payments', p.id)).catch(() => {}));
-    setDoc(doc(db, 'settings', 'orders_store'), { list: [], updatedAt: new Date().toISOString() }).catch(() => {});
+    orders.forEach(o => deleteDoc(doc(db, 'orders', o.id)).catch(() => {}));
   };
 
-  const exportDataJson = () => {
-    const data = {
-      exportedAt: new Date().toISOString(),
-      businessProfile,
-      activeCurrency,
-      customers,
-      products,
-      orders,
-      invoices: refreshedInvoices,
-      payments,
-    };
-    return JSON.stringify(data, null, 2);
-  };
+  const exportDataJson = () => JSON.stringify(
+    { exportedAt: new Date().toISOString(), businessProfile, activeCurrency, customers, products, orders, invoices: refreshedInvoices, payments },
+    null, 2
+  );
 
   const importDataJson = async (jsonString: string): Promise<boolean> => {
     try {
       const parsed = JSON.parse(jsonString);
       if (parsed.customers && Array.isArray(parsed.customers)) {
         setCustomers(parsed.customers);
-        for (const c of parsed.customers) {
-          await setDoc(doc(db, 'customers', c.id), sanitizeForFirestore(c));
-        }
+        for (const c of parsed.customers) await setDoc(doc(db, 'customers', c.id), sanitizeForFirestore(c));
       }
       if (parsed.products && Array.isArray(parsed.products)) {
         setProducts(parsed.products);
-        for (const p of parsed.products) {
-          await setDoc(doc(db, 'products', p.id), sanitizeForFirestore(p));
-        }
+        for (const p of parsed.products) await setDoc(doc(db, 'products', p.id), sanitizeForFirestore(p));
       }
       if (parsed.orders && Array.isArray(parsed.orders)) {
         setOrders(parsed.orders);
-        await setDoc(doc(db, 'settings', 'orders_store'), {
-          list: sanitizeForFirestore(parsed.orders),
-          updatedAt: new Date().toISOString(),
-        });
+        for (const o of parsed.orders) await setDoc(doc(db, 'orders', o.id), sanitizeForFirestore(o));
       }
       if (parsed.invoices && Array.isArray(parsed.invoices)) {
         setInvoices(parsed.invoices);
-        for (const i of parsed.invoices) {
-          await setDoc(doc(db, 'invoices', i.id), sanitizeForFirestore(i));
-        }
+        for (const i of parsed.invoices) await setDoc(doc(db, 'invoices', i.id), sanitizeForFirestore(i));
       }
       if (parsed.payments && Array.isArray(parsed.payments)) {
         setPayments(parsed.payments);
-        for (const p of parsed.payments) {
-          await setDoc(doc(db, 'payments', p.id), sanitizeForFirestore(p));
-        }
+        for (const p of parsed.payments) await setDoc(doc(db, 'payments', p.id), sanitizeForFirestore(p));
       }
       if (parsed.businessProfile) {
         setBusinessProfile(parsed.businessProfile);
@@ -1075,42 +789,16 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   return (
     <LedgerContext.Provider
       value={{
-        customers,
-        products,
-        invoices: refreshedInvoices,
-        payments,
-        orders,
-        businessProfile,
-        activeCurrency,
-        theme,
-        cloudStatus,
-        toggleTheme,
-        setActiveCurrency,
-        updateBusinessProfile,
-        addCustomer,
-        updateCustomer,
-        deleteCustomer,
-        getCustomerBalance,
-        getCustomerLedger,
-        addProduct,
-        updateProduct,
-        deleteProduct,
-        addOrder,
-        updateOrder,
-        deleteOrder,
-        convertOrderToInvoice,
-        addInvoice,
-        updateInvoice,
-        deleteInvoice,
-        addPayment,
-        deletePayment,
-        debtAging,
-        metrics,
-        profitSummary,
-        getInvoiceProfit,
-        clearAllData,
-        exportDataJson,
-        importDataJson,
+        customers, products, invoices: refreshedInvoices, payments, orders,
+        businessProfile, activeCurrency, theme, cloudStatus,
+        toggleTheme, setActiveCurrency, updateBusinessProfile,
+        addCustomer, updateCustomer, deleteCustomer, getCustomerBalance, getCustomerLedger,
+        addProduct, updateProduct, deleteProduct,
+        addOrder, updateOrder, deleteOrder, convertOrderToInvoice,
+        addInvoice, updateInvoice, deleteInvoice,
+        addPayment, deletePayment,
+        debtAging, metrics, profitSummary, getInvoiceProfit,
+        clearAllData, exportDataJson, importDataJson,
       }}
     >
       {children}
@@ -1120,8 +808,6 @@ export const LedgerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
 export const useLedger = () => {
   const context = useContext(LedgerContext);
-  if (!context) {
-    throw new Error('useLedger must be used within a LedgerProvider');
-  }
+  if (!context) throw new Error('useLedger must be used within a LedgerProvider');
   return context;
 };
